@@ -6,6 +6,55 @@ project follows [semver](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0]
+
+### Added
+- `internal/governance`: the governance layer (治理层) — violation detection →
+  seven-stage adjudication → sentence generation → appeal intake →
+  rehabilitation assessment, plus the unified sentence state machine, per
+  docs/04-governance.md and docs/governance-templates/committee-charter.md.
+  - **Detection & case opening (立案)** — `OpenCase(domain.Violation)` treats a
+    detection as a FILING BASIS only (not a sentence), reads the baseline from
+    `Violation.RecommendedLevel()`, runs the stage-① signal-integrity gate
+    (known type + non-empty signals) and opens the case at `open`/待裁定.
+  - **Seven-stage pipeline + two-phase consent (七阶段 + 两阶段同意)** — stages
+    align exactly with committee-charter.md §4.1: ① 立案与信号核验,
+    ② 证据与先例审查, ③ 分级基线确认 (+ five-seat committee formation),
+    ④ 第一阶段表决 deprive, ⑤ 第二阶段表决 grade, ⑥ 异议记录与判决生成,
+    ⑦ 申诉/矫正复核窗口. Stages cannot be skipped. Phase 1 uses
+    `domain.TallyPhase(PhaseDeprive)` strict majority; failure dismisses the case
+    with NO deprivation. Phase 2 uses `TallyPhase(PhaseGrade)`; no majority
+    leaves the case deferred with no definite-level sentence. Votes are
+    append-only — dissenting votes and their Reason are recorded and the package
+    exposes NO edit/delete method.
+  - **Human-accountability gate (人类问责耦合)** — `IssueSentence` reuses
+    `identity.ValidateAccountability` and REFUSES a sentence without at least one
+    well-formed human record. Output is a `domain.Sentence(status=approved)`
+    carrying charges, the full immutable vote book, level deprivations,
+    accountability and timestamps.
+  - **Unified state machine** — a legal-transition table over
+    `domain.SentenceStatus` (proposed→approved→enforcing→appealed/suspended→
+    completed/upgraded/overturned); illegal moves (e.g. proposed→completed,
+    restoring an L5 identity) are rejected. Every transition appends a governance
+    event (`EventAdjudicated`/`EventSentenced`/`EventAppealFiled`/
+    `EventAppealRuled`/`EventRehabilitationEvaluated`/`EventRestored`) to the
+    injected `EventSink` (real `*audit.Chain` adapter in `adapters.go`).
+  - **Appeal (申诉)** — only the agent's human principal may file
+    (`FileAppeal`, backed by a `PrincipalResolver` / `RegisterAgent`). Suspension
+    strictly follows `level.go`: L0–L3 → `suspended`, L4–L5 stays `enforcing`.
+    An upheld L0–L4 appeal produces a `RestorationOrder`; **L5
+    (`CanRecover()==false`) can never produce one** — the record may be corrected
+    but the identity is never unsealed.
+  - **Rehabilitation (矫正评估)** — supervised behaviour-distribution scoring
+    (injectable `RehabResult{Score,Threshold,Passed}`) for L2–L3: pass →
+    `completed` + restoration order; fail → escalate exactly one level upward via
+    `Level.CanEscalateTo`, capped at L5.
+  - Dependencies stay standard-library-only (go.mod unchanged); the package uses
+    small injected interfaces (`EventSink`, `PrincipalResolver`) with real
+    adapters for `*audit.Chain`. Pure in-memory simulation of governance decisions
+    and the state machine — NOT a real legal process, no real committee and no
+    judicial effect; strictly defensive.
+
 ## [0.6.0]
 
 ### Added
