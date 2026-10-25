@@ -6,6 +6,21 @@ project follows [semver](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Real persistence of the governance ledger** (`internal/store` already landed; v1.1 wires it into the orchestration and CLI). The judgement hash chain, revocation entries + node acks, execution receipts, sealed-snapshot metadata, agent registrations, adjudicated cases, issued sentences and the orchestrator's runtime-status projection now durably survive a process restart as an append-only, per-record-hash-chained JSONL event log:
+  - `internal/prison/persist.go`: optional `prison.Config.Store` (nil = pure memory, v1.0 behaviour/output/tests byte-for-byte unchanged). A recording chain sink mirrors every stamped `domain.Event`; clear journey boundaries (`DetectAndSentence` / `Enforce` / `Appeal` / `Rehabilitate` / `Finalize`, and every drill step) checkpoint the live substrates onto the ledger with idempotent, last-seen dedup.
+  - **Event-sourced restart**: opening a FileStore on an existing data dir replays the ledger into a fresh System — the audit chain re-feeds (identical index/prevHash/hash, `Chain.Verify` green), the revocation set re-`Revoke`s/`AckNode`s, the receipt book is restored verbatim (`audit.ReceiptBook.Restore`, backward-compatible), snapshot metadata is restored (`resource.MemSnapshotStore.Restore`/`All`, backward-compatible), and a read-only `Restored` agent projection (DID / principal / nodes / cardRevoked / reputation / level / status / sentences) is rebuilt.
+  - **`System.InspectView()`**: backend-independent structured snapshot (chain events + verify, revocation entries + enforced count, untrusted nodes, receipt counts, snapshot metadata, per-agent level/status/cardRevoked/reputation, sentences/cases) for both memory and ledger modes.
+- **CLI data directory & inspection commands** (`cmd/aiprison`):
+  - Global `--data-dir PATH` (before or after the subcommand); `demo`/`drill` persist when it is given and print the data dir plus `已落盘记录数 / 段数` at the end.
+  - `aiprison inspect --data-dir DIR`: read-only replay — `CHAIN VERIFY: OK`, rebuilt agents (id/level/status/cardRevoked/reputation), sentences/cases, enforced vs unenforced revocation entries, untrusted nodes, receipt counts, snapshot metadata.
+  - `aiprison verify --data-dir DIR`: `INTEGRITY OK` + exit 0 on a healthy ledger; on tamper/torn tail it prints the located file/seq/line and exits 1.
+  - `aiprison repair-tail --data-dir DIR`: removes ONLY a genuine torn (incomplete) tail line and reports the byte count; it refuses with `hard tamper, refusing to repair` on a tampered-but-complete record.
+- **Cross-process & fault-injection assertions** (`test/persistence_cli_test.go`, `TestMain` builds the real CLI to a temp dir once): demo→inspect→verify across processes (agent-7 L3/restored-active, agent-3 L5/identity_revoked/cardRevoked, revocation entries >0, snapshot metadata, record count matching the demo summary, verify exit 0); drill→inspect/verify; byte-tamper a published record → verify non-zero + tamper location; truncate the tail → verify reports torn tail → repair-tail recovers → verify exit 0 with one fewer record. In-process replay invariants live in `internal/prison/persist_test.go` (revoked-but-not-expired credentials stay `IsUsable()==false` after restart; L5 card revoked / reputation 0 / no restoration order; append-only growth; memory-vs-file projection equality).
+
+### Boundary
+- This is **real persistence for the governance/audit record only**. The execution backends remain simulated and unsaved across restarts: sandbox isolation, cgroup/quotas, real revocation distribution, hardware binding, GRAM/TLM and token stacks do NOT resume in a new process — the ledger records what those simulated components decided, so the next process can prove and re-enforce it. Strictly defensive: traceability, verifiability, accountable recovery.
+
 ## [1.0.0]
 
 v1.0.0 is the first stable, fully-local release: it turns docs/06's recovery-drill runbook

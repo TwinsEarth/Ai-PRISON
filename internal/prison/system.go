@@ -33,6 +33,7 @@ import (
 	"github.com/ai-prison/ai-prison/internal/enforcement/resource"
 	"github.com/ai-prison/ai-prison/internal/governance"
 	"github.com/ai-prison/ai-prison/internal/revocation"
+	"github.com/ai-prison/ai-prison/internal/store"
 	"github.com/ai-prison/ai-prison/pkg/contracts"
 )
 
@@ -107,6 +108,26 @@ type System struct {
 	// enforcement / restoration (the layer packages do not all expose a generic
 	// status setter; the orchestrator owns this read-side projection).
 	runtimeStatus map[domain.AgentID]domain.AgentStatus
+
+	// --- durable-ledger wiring (v1.1); all nil/empty when Store == nil --------
+	// recorder is nil in the default in-memory mode: nothing below compiles in
+	// any write path, and behaviour/output is identical to v1.0.
+	recorder *ledgerRecorder
+	// restored is true once an existing ledger was replayed during NewSystem.
+	restored bool
+	// agentReputation mirrors the per-agent reputation score used in the
+	// runtime-status projection.
+	agentReputation map[domain.AgentID]int
+	// proj is the read-side agent projection: maintained live when running,
+	// rebuilt from the ledger on restart. InspectView reads it.
+	proj map[domain.AgentID]*RestoredAgent
+	// caseCount counts adjudicated cases (incremented live; rebuilt on replay).
+	caseCount int
+	// sentenceCount counts issued sentences (incremented live; rebuilt on replay).
+	sentenceCount int
+	// BootstrapErr sticks a replay failure (an open FileStore already verified
+	// the record chain; a non-nil value here means a payload-decode bug).
+	BootstrapErr error
 }
 
 // Config builds a System; zero value means "sensible deterministic in-memory
@@ -114,6 +135,10 @@ type System struct {
 type Config struct {
 	// Clock overrides the fixed clock; nil uses DefaultClock.
 	Clock func() time.Time
+	// Store, when non-nil, enables real crash-safe persistence of the
+	// governance/audit record (see persist.go). nil keeps the v1.0 pure-memory
+	// behaviour, output and tests unchanged.
+	Store store.Store
 }
 
 // NewSystem assembles every layer with the real in-memory implementations and
@@ -129,13 +154,26 @@ func NewSystem(cfg Config) *System {
 	book := audit.NewReceiptBook()
 	set := revocation.NewSet()
 
+	// When a ledger is wired, every layer receives a recording sink that mirrors
+	// stamped chain events onto the ledger; otherwise the v1.0 plain adapters
+	// are used byte-for-byte unchanged.
+	var rec *ledgerRecorder
+	if cfg.Store != nil {
+		rec = newRecorder(cfg.Store)
+	}
+	sp := recordingSink{chain: chain, rec: rec, clock: clock}
+
 	// Resource layer.
 	resSnaps := resource.NewMemSnapshotStore()
 	resBackend := resource.NewInMemoryBackend(set)
+	resEvents := resource.EventSink(resource.NewChainSink(chain))
+	if rec != nil {
+		resEvents = sp
+	}
 	resEngine := resource.NewEngine(resource.Config{
 		Backend:     resBackend,
 		Revocations: resource.NewRevocationSetSink(set),
-		Events:      resource.NewChainSink(chain),
+		Events:      resEvents,
 		Receipts:    resource.NewReceiptBookSink(book),
 		Snapshots:   resSnaps,
 	})
@@ -143,61 +181,101 @@ func NewSystem(cfg Config) *System {
 
 	// Isolation layer.
 	gradient := isolation.NewGradient()
-	isoCtrl := isolation.NewController(gradient, chainSink{chain: chain})
+	isoSink := isolation.EventSink(chainSink{chain: chain})
+	if rec != nil {
+		isoSink = sp
+	}
+	isoCtrl := isolation.NewController(gradient, isoSink)
 
 	// Identity & communication layer.
 	topo := identity.NewInMemoryTopology()
+	idEvents := identity.EventSink(identity.NewEventSink(chain))
+	if rec != nil {
+		idEvents = sp
+	}
 	idSvc := identity.NewService(identity.Config{
 		Topology:    topo,
 		Revocations: identity.NewRevocationSink(set),
-		Events:      identity.NewEventSink(chain),
+		Events:      idEvents,
 		Receipts:    identity.NewReceiptController(book),
 	})
 
 	// Migration-suppression layer (shared in-memory subsystems, inspected later).
+	migEvents := migration.EventSink(migration.NewChainSink(chain))
+	if rec != nil {
+		migEvents = sp
+	}
+	migCustodySink := migration.EventSink(chainSink{chain: chain})
+	if rec != nil {
+		migCustodySink = sp
+	}
 	migSvc := migration.NewService(migration.Config{
 		Binder:  migration.NewMemHardwareBinder(),
 		Records: migration.NewMemRecordKeeper(),
-		Custody: migration.NewMemCustodyStore(chainSink{chain: chain}),
-		Events:  migration.NewChainSink(chain),
+		Custody: migration.NewMemCustodyStore(migCustodySink),
+		Events:  migEvents,
 	})
 
 	// Capability-blockade layer, gated on the real isolation controller.
+	capEvents := capability.EventSink(capability.NewChainSink(chain))
+	if rec != nil {
+		capEvents = sp
+	}
 	capSvc := capability.NewService(capability.Config{
 		Gate:   isoGate{ctrl: isoCtrl},
-		Events: capability.NewChainSink(chain),
+		Events: capEvents,
 	})
 
 	// Governance layer. Principals are registered explicitly via Gov.RegisterAgent.
+	govEvents := governance.EventSink(governance.NewEventSink(chain))
+	if rec != nil {
+		govEvents = sp
+	}
 	govSvc := governance.New(governance.Config{
-		Events: governance.NewEventSink(chain),
+		Events: govEvents,
 		Now:    clock,
 	})
 
 	sys := &System{
-		Chain:         chain,
-		Book:          book,
-		Set:           set,
-		Resource:      resEngine,
-		ResBackend:    resBackend,
-		ResSnaps:      resSnaps,
-		Gradient:      gradient,
-		Iso:           isoCtrl,
-		Identity:      idSvc,
-		Topology:      topo,
-		Migration:     migSvc,
-		Capability:    capSvc,
-		Gov:           govSvc,
-		clock:         clock,
-		freezeHooks:   make(map[domain.AgentID]int),
-		runtimeStatus: make(map[domain.AgentID]domain.AgentStatus),
+		Chain:           chain,
+		Book:            book,
+		Set:             set,
+		Resource:        resEngine,
+		ResBackend:      resBackend,
+		ResSnaps:        resSnaps,
+		Gradient:        gradient,
+		Iso:             isoCtrl,
+		Identity:        idSvc,
+		Topology:        topo,
+		Migration:       migSvc,
+		Capability:      capSvc,
+		Gov:             govSvc,
+		clock:           clock,
+		freezeHooks:     make(map[domain.AgentID]int),
+		runtimeStatus:   make(map[domain.AgentID]domain.AgentStatus),
+		recorder:        rec,
+		agentReputation: make(map[domain.AgentID]int),
+		proj:            make(map[domain.AgentID]*RestoredAgent),
 	}
 	// Behaviour monitor: freeze mid-anomaly, record the ordinal it fired at.
+	monSink := isolation.EventSink(chainSink{chain: chain})
+	if rec != nil {
+		monSink = sp
+	}
 	sys.Monitor = isolation.NewMonitor(monitorFreezeThreshold,
 		func(agent domain.AgentID, _ isolation.Signal) {
 			sys.freezeHooks[agent] = sys.Monitor.TotalObserved()
 		},
-		chainSink{chain: chain})
+		monSink)
+
+	// Event-sourced boot: rebuild substrates + projection from an existing ledger.
+	if rec != nil {
+		if err := sys.replay(); err != nil {
+			sys.BootstrapErr = err
+		} else {
+			sys.restored = true
+		}
+	}
 	return sys
 }
 

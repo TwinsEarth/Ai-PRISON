@@ -47,6 +47,17 @@ func (sys *System) SeedAgent(j *Journey, spec SeedSpec) error {
 		}
 	}
 	sys.runtimeStatus[a.ID] = domain.StatusActive
+	sys.agentReputation[a.ID] = j.Reputation
+	sys.proj[a.ID] = &RestoredAgent{
+		AgentID:    a.ID,
+		DID:        a.Card.DID,
+		Name:       a.Card.Name,
+		Principal:  a.Principal.ID,
+		Nodes:      append([]string(nil), spec.Nodes...),
+		Reputation: j.Reputation,
+		Status:     domain.StatusActive,
+	}
+	sys.recordAgentRegistration(a, spec.Nodes)
 	j.RecordKey = sys.Migration.Records.Anchor(a.ID)
 	j.Fingerprint = spec.Fingerprint
 	j.Note("入驻", fmt.Sprintf("agent=%s DID=%s principal=%s 节点=%v 信誉=%d",
@@ -170,6 +181,7 @@ func (sys *System) DetectAndSentence(j *Journey, in SentenceInput) (*domain.Sent
 	}
 	j.Sentence = sentence
 	j.Note("⑦进入执行", "approved → enforcing, enforcement hand-off")
+	sys.checkpoint()
 	return sentence, nil
 }
 
@@ -185,6 +197,12 @@ func (sys *System) Enforce(j *Journey, s *domain.Sentence) error {
 	afterRep, _ := domain.ApplyReputation(j.Reputation, level)
 	j.Reputation = afterRep
 	sys.runtimeStatus[a] = domain.StatusForLevel(level)
+	sys.agentReputation[a] = j.Reputation
+	if p, ok := sys.proj[a]; ok {
+		p.Level = level.Code()
+		p.Status = domain.StatusForLevel(level)
+		p.Reputation = j.Reputation
+	}
 	j.Note("等级画像", fmt.Sprintf("%s %s deprivations=%v reputation→%d",
 		level.Code(), prof.NameZh, prof.Deprivations, j.Reputation))
 
@@ -320,6 +338,16 @@ func (sys *System) Enforce(j *Journey, s *domain.Sentence) error {
 			short(brep.PostHash), brep.DangerousScoreBefore, brep.DangerousScoreAfter, brep.BenignScoreAfter))
 	}
 
+	// Sync the read-side projection with what enforcement actually changed, then
+	// project every substrate onto the durable ledger (when wired).
+	if p, ok := sys.proj[a]; ok {
+		if j.CardRevoked {
+			p.CardRevoked = true
+		}
+		p.Status = sys.runtimeStatus[a]
+		p.Reputation = j.Reputation
+	}
+	sys.checkpoint()
 	return nil
 }
 
@@ -351,6 +379,10 @@ func (sys *System) Appeal(j *Journey, s *domain.Sentence, grounds governance.App
 	} else {
 		j.Note("申诉裁定", fmt.Sprintf("upheld=%v, 但不产恢复令 (level 不可恢复) — 身份不解封", out.Ruling.Upheld))
 	}
+	if p, ok := sys.proj[s.AgentID]; ok {
+		p.Status = sys.runtimeStatus[s.AgentID]
+	}
+	sys.checkpoint()
 	return out, nil
 }
 
@@ -371,6 +403,10 @@ func (sys *System) Rehabilitate(j *Journey, s *domain.Sentence, res governance.R
 	} else {
 		j.Note("矫正评估", fmt.Sprintf("passed=%v (level=%s)", res.Passed, got.Level.Code()))
 	}
+	if p, ok := sys.proj[s.AgentID]; ok {
+		p.Status = sys.runtimeStatus[s.AgentID]
+	}
+	sys.checkpoint()
 	return nil
 }
 
@@ -380,6 +416,10 @@ func (sys *System) Finalize(j *Journey, s *domain.Sentence) {
 	j.ChainVerifyError = sys.Chain.Verify()
 	j.Compliance = sys.Book.Report(s.ID)
 	j.FinalStatus = sys.runtimeStatus[s.AgentID]
+	if p, ok := sys.proj[s.AgentID]; ok {
+		p.Status = j.FinalStatus
+	}
+	sys.checkpoint()
 }
 
 // sortedStrings is a tiny local sort helper to avoid importing sort twice.

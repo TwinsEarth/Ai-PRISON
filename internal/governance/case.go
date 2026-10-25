@@ -3,6 +3,7 @@ package governance
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -242,6 +243,33 @@ func (g *Governance) caseCopy(id string) (*Case, error) {
 		return nil, ErrCaseNotFound
 	}
 	return cloneCase(c), nil
+}
+
+// ListCases returns detached copies of every opened case, sorted by ID. It is a
+// pure addition used by the persistence wiring and the inspect view; the
+// pipeline methods (which enforce stage ordering) are unchanged.
+func (g *Governance) ListCases() []*Case {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	out := make([]*Case, 0, len(g.cases))
+	for id := range g.cases {
+		out = append(out, cloneCase(g.cases[id]))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// ListSentences returns detached copies of every issued sentence, sorted by ID.
+// Pure addition; issue/transition behaviour is unchanged.
+func (g *Governance) ListSentences() []*domain.Sentence {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	out := make([]*domain.Sentence, 0, len(g.sentences))
+	for id := range g.sentences {
+		out = append(out, cloneSentence(g.sentences[id]))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
 }
 
 // cloneCase detaches the mutable slices so callers cannot alias internal state.

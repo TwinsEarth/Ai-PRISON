@@ -155,6 +155,39 @@ func (s *Set) UnacknowledgedNodes(credentialID string) (nodes []string, found bo
 	return nodes, true
 }
 
+// EntryDetail is one revocation entry together with the required holding nodes
+// it was written with. Entry itself deliberately omits the required-node set
+// (it is a write-time replication parameter); the persistence wiring needs it
+// to replay entries onto a fresh set, so ListDetailed exposes it as a pure
+// addition.
+type EntryDetail struct {
+	Entry
+	// RequiredNodes are the nodes that must acknowledge before the revocation is
+	// enforced across the simulated cluster (write-time parameter).
+	RequiredNodes []string `json:"requiredNodes,omitempty"`
+}
+
+// ListDetailed returns every entry together with its required holding nodes, in
+// write order. It is a pure addition; List/UnacknowledgedNodes behaviour is
+// unchanged.
+func (s *Set) ListDetailed() []EntryDetail {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]EntryDetail, len(s.records))
+	for i, rec := range s.records {
+		e := EntryDetail{Entry: rec.Entry}
+		if len(rec.acked) > 0 {
+			e.AcknowledgedBy = sortedKeys(rec.acked)
+		}
+		for n := range rec.required {
+			e.RequiredNodes = append(e.RequiredNodes, n)
+		}
+		sort.Strings(e.RequiredNodes)
+		out[i] = e
+	}
+	return out
+}
+
 // List returns the revocation entries in write order. Each returned entry is
 // a detached snapshot (including the acknowledgement list) suitable for
 // cross-node replication export; mutating it does not change the set.

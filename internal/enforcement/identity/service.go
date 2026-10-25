@@ -100,6 +100,36 @@ func (s *Service) RegisterAgent(a domain.Agent, nodeIDs ...string) {
 	}
 }
 
+// ListAgents returns detached copies of every registered agent, sorted by ID.
+// It is a pure addition used by the persistence wiring and the inspect view;
+// RegisterAgent/GetAgent behaviour is unchanged.
+func (s *Service) ListAgents() []domain.Agent {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.Agent, 0, len(s.agents))
+	for id := range s.agents {
+		out = append(out, s.GetAgentLocked(id))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// GetAgentLocked returns the agent record while the read lock is held.
+func (s *Service) GetAgentLocked(agentID domain.AgentID) domain.Agent {
+	rec, ok := s.agents[agentID]
+	if !ok {
+		return domain.Agent{}
+	}
+	return domain.Agent{
+		ID:                 agentID,
+		Card:               rec.Card,
+		Principal:          rec.Principal,
+		Deployer:           rec.Deployer,
+		ModelProviderParty: rec.Provider,
+		Status:             rec.Status,
+	}
+}
+
 // GetAgent returns a detached copy of the registered agent's card/status.
 func (s *Service) GetAgent(agentID domain.AgentID) (domain.Agent, bool) {
 	s.mu.RLock()

@@ -98,6 +98,23 @@ func (b *ReceiptBook) MarkMissing(receiptID string) (domain.Receipt, bool) {
 	return *r, true
 }
 
+// Restore rebuilds one receipt exactly as it was recorded on the durable
+// ledger (event-sourced recovery). Unlike RegisterPending it does NOT force
+// the status to pending: an acked/missing receipt is restored verbatim so the
+// untrusted-node judgement is identical after a restart. Insertion order is
+// preserved on first sight; re-restoring the same ID replaces it in place.
+// It is a pure addition used by the prison persistence wiring; the live paths
+// (RegisterPending/Ack/MarkMissing) are unchanged.
+func (b *ReceiptBook) Restore(r domain.Receipt) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, ok := b.receipts[r.ID]; !ok {
+		b.order = append(b.order, r.ID)
+	}
+	cp := r
+	b.receipts[r.ID] = &cp
+}
+
 // Get returns a copy of one receipt.
 func (b *ReceiptBook) Get(id string) (domain.Receipt, bool) {
 	b.mu.RLock()

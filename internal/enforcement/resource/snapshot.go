@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -74,6 +75,27 @@ func (s *MemSnapshotStore) Get(id string) (Snapshot, bool) {
 	defer s.mu.Unlock()
 	snap, ok := s.items[id]
 	return snap, ok
+}
+
+// All returns detached copies of every sealed snapshot in seal order. It is a
+// pure addition used by the persistence wiring to snapshot the evidence catalog
+// onto the durable ledger; Seal/Get/Len behaviour is unchanged.
+func (s *MemSnapshotStore) All() []Snapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Snapshot, 0, len(s.items))
+	for _, snap := range s.items {
+		out = append(out, snap)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// Restore re-seals a snapshot record read back from the durable ledger. It is
+// idempotent (a re-run with the same ID returns the stored copy) and never
+// recomputes an existing content hash.
+func (s *MemSnapshotStore) Restore(snap Snapshot) (Snapshot, error) {
+	return s.Seal(snap)
 }
 
 // Len returns the number of sealed snapshots (used by idempotency tests).
