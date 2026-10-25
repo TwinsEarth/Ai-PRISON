@@ -6,6 +6,41 @@ project follows [semver](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0]
+
+### Added
+- `internal/audit`: the audit layer.
+  - Tamper-evident judgement hash chain (`Chain`): `Append` stamps index,
+    RFC3339Nano UTC timestamp, prevHash and a SHA-256 digest over the
+    canonical, key-sorted event representation; the head links to the fixed
+    `GenesisPrevHash`. `Get` / `Len` / `Entries` expose detached copies;
+    `Verify` (and the stateless `VerifyEntries`) re-derives every digest and
+    link and reports the offending index on any tamper.
+  - `ReceiptBook`: broadcast receipts are never treated as delivered.
+    `RegisterPending`, `Ack` (stamps a simulated HMAC-SHA256 signature over
+    operation + before/after state hashes, ackedAt, status=acked),
+    `MarkMissing`, and `UntrustedNodes` — the nodes holding any non-acked
+    receipt, which v0.6 will use for the group freeze (连带冻结).
+  - `Report(sentenceID)` returns a `contracts.ComplianceReport`: per-hop
+    compliance (every step acknowledged) contrasted with end-to-end
+    compliance (per-hop AND the final snapshot-seal receipt acked), plus
+    `pendingReceipts` and `untrustedNodes` counts.
+- Unit tests: chain linking and verification, tamper detection for
+  type/payload/prevHash/timestamp/hash with index location, attacker-recomputed
+  digests detected as broken links, concurrent appends (-race), simulated
+  signature sensitivity to key/operation/state, pending→acked→missing
+  lifecycle, untrusted-node set, and all four per-hop/end-to-end combinations.
+
+### Changed
+- No wire/contract break: the chain reuses `domain.Event`, receipts reuse
+  `domain.Receipt`, and the report reuses `contracts.ComplianceReport`; no
+  schema changes required.
+
+### Security
+- Simulated, in-memory only: the "node signatures" are HMAC values with no
+  real PKI or node identity, and the chain lives in one process. Defensive
+  scope unchanged (traceability, verifiability, accountability only).
+
 ## [0.2.0]
 
 ### Added
