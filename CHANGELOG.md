@@ -4,6 +4,11 @@ All notable changes to AI Prison are documented in this file. The format is
 loosely based on [Keep a Changelog](https://keepachangelog.com/), and the
 project follows [semver](https://semver.org/).
 
+## [1.0.2] - 2026-10-26
+
+### Added
+- 隔离执行环境定位——容器化（Docker）沙箱，AI 在完全隔离环境运行、无法突破宿主机。纯文档/版本 patch，无 Go 业务逻辑改动。
+
 ## [1.0.1] - 2026-10-26
 
 ### Added

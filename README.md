@@ -8,6 +8,7 @@
 > 通俗地说，它由六道相互配合的防线组成：
 >
 > - **虚拟沙盒**：软件层面的隔离机制，把可能危险的 AI 关进受控环境运行，防止它接触真实系统。
+> - **隔离执行环境**：用容器技术（比如 Docker）构建沙箱，让 AI 算法在完全隔离的环境中运行，无法突破到宿主机。
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![go: 1.27](https://img.shields.io/badge/go-1.27-00ADD8.svg)](https://go.dev)
