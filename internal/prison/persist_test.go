@@ -1,6 +1,7 @@
 package prison
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ai-prison/ai-prison/internal/domain"
@@ -172,7 +173,7 @@ func TestRestartThenAppendKeepsChain(t *testing.T) {
 func collectAll(t *testing.T, s *store.FileStore) []store.Record {
 	t.Helper()
 	var out []store.Record
-	if err := s.Replay(nil, func(r store.Record) error { out = append(out, r); return nil }); err != nil {
+	if err := s.Replay(context.Background(), func(r store.Record) error { out = append(out, r); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	return out

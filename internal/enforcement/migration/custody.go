@@ -9,13 +9,10 @@ import (
 	"github.com/ai-prison/ai-prison/internal/domain"
 )
 
-// custodianShare is the simulated share token assigned to one custodian at seal
-// time. This is NOT real Shamir secret sharing — the token is a deterministic
-// label; the only thing actually enforced is the M-of-N threshold bookkeeping.
-type custodianShare struct {
-	custodian string
-	token     string
-}
+// A custodian's simulated "share token" is the deterministic string
+// "<contentHash>|share-<i>" assigned at seal time. This is NOT real Shamir
+// secret sharing; the only thing enforced is the M-of-N threshold bookkeeping.
+// Tokens are stored inline in sealedCustodyRow.shares (custodian -> token).
 
 type sealedCustodyRow struct {
 	SealedCustody

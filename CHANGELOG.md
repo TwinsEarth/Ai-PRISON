@@ -6,6 +6,15 @@ project follows [semver](https://semver.org/).
 
 ## [Unreleased]
 
+### Hardening — static analysis, coverage, review fixes, benchmarks (v1.1)
+- **Static analysis (staticcheck 2026.2.2 / go1.27.3 darwin/arm64):** `staticcheck ./...` and `staticcheck -checks all ./...` both run clean (0 findings). Fixed the initial 4 U1000/SA1012 findings (dead `ReceiptBook.pendingCount`, unused `migration.custodianShare`, nil context in a test, unused test helper field) and 3 ST-style findings (comment/receiver-name consistency). Raw output + version saved to `docs/reports/staticcheck-1.0.0.txt`.
+- **Coverage:** `go test -coverprofile=coverage.txt -covermode=atomic ./...` total **71.9%** (up from 66.0%). Per-package self coverage: audit 89.0%, isolation 89.5%, revocation 84.3%, migration 80.5%, resource 78.5%, governance 78.4%, domain 78.3%, identity 77.0%, prison **76.0% (was 55.3%)**, store **75.2% (was 69.1%)**, capability 71.1%. Added `internal/prison/drill_test.go` (in-process recovery-matrix assertions) and `internal/store/coverage_test.go` (accessors, clock, payload edges, repair no-ops, cancelled-context). Summary in `docs/reports/coverage-1.0.0.txt`.
+- **Review fixes (see `docs/reports/review-findings-1.0.0.md`):**
+  - P1: `resource.Engine.Deprive` no longer nil-panics when `Snapshots` is unset — returns a clear configuration error (regression `TestDepriveNilSnapshotStoreReturnsError`).
+  - P2: `FileStore`/`MemoryStore` `Append`/`Sync` now honor `ctx.Err()` (a cancelled context aborts before any mutation; regression `TestAppendSyncHonorsCancelledContext`).
+  - Verified across all packages: no data races (`-race -count=2` green), segment filenames derive only from the global seq (no kind/payload path injection), hash inputs are deterministic (UTC RFC3339Nano, sorted keys), 212 comments mark GRAM/TLM/hardware/MicroVM/custody as simulated.
+- **Benchmarks (real `-benchmem`, Apple M4):** revocation lookup ~6.6 ns/op 0 allocs over a 100k-entry set; `audit.Chain.Append` 1.1 us/op; full-chain Verify scales linearly (1k=0.78 ms, 10k=8.0 ms, 100k=78 ms); FileStore AppendSyncEveryAppend 8.2 ms/op (fsync-per-record) vs batched 33.5 us/op (~244x); governance case-to-verdict 2.3 us; resource 5-step deprivation 2.6 us; `RunScenarioA` 69.8 us in-memory vs 9.81 ms on FileStore. Binary ~3.2 MB, starts in ~2.7 ms, `demo`/`drill` run in ~11 ms with <8 MiB peak RSS. Raw output in `docs/reports/benchmark-1.0.0.txt`. No correctness-changing optimisation was needed: hot paths are already O(1) and fsync-batched by design.
+
 ### Added
 - **Real deployable binary with link-time version injection** (`Makefile`, `cmd/aiprison/main.go`):
   - `make build` now produces a real, stripped, `-trimpath` binary at `bin/aiprison` (cross-compile target `bin/aiprison.exe` when `GOOS=windows`) and injects release metadata via `-ldflags -X main.version/main.commit/main.buildTime` — `VERSION` (default `1.0.0`), `COMMIT` (`git rev-parse --short HEAD`), UTC `BUILD_TIME`. The CLI's version metadata is now plain package variables (`var version/commit/buildTime`, defaults preserved) instead of a compile-time const.

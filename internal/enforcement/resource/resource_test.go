@@ -295,3 +295,28 @@ func TestConcurrentDepriveAndAllocate(t *testing.T) {
 		}
 	}
 }
+
+// TestDepriveNilSnapshotStoreReturnsError guards against a nil SnapshotStore:
+// previously Deprive would nil-panic at the Seal call; now it returns a clear
+// configuration error.
+func TestDepriveNilSnapshotStoreReturnsError(t *testing.T) {
+	set := revocation.NewSet()
+	eng := NewEngine(Config{
+		Backend: NewInMemoryBackend(set),
+		// Snapshots intentionally nil.
+	})
+	_, err := eng.Deprive(DepriveInput{
+		SentenceID:   "s-1",
+		AgentID:      testAgent,
+		CredentialID: "cred-resource-1",
+		Reason:       "regression: nil snapshot store",
+	})
+	if err == nil {
+		t.Fatal("expected error when SnapshotStore is nil, got nil")
+	}
+	// Also: a nil Backend must error before any state mutation.
+	eng2 := NewEngine(Config{Snapshots: &MemSnapshotStore{}})
+	if _, err := eng2.Deprive(DepriveInput{AgentID: testAgent}); err == nil {
+		t.Fatal("expected error when Backend is nil, got nil")
+	}
+}

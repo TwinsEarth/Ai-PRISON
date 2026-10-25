@@ -40,7 +40,7 @@ type agentPrincipalLookup struct {
 	}
 }
 
-// NewPrincipalResolver adapts an agent registry exposing GetAgent (such as an
+// NewPrincipalLookup adapts an agent registry exposing GetAgent (such as an
 // *identity.Service) to a PrincipalResolver.
 func NewPrincipalLookup(agents interface {
 	GetAgent(domain.AgentID) (domain.Agent, bool)

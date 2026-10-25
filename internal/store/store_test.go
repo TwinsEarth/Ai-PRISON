@@ -20,7 +20,6 @@ type testPayload struct {
 // conformance suite runs against both the in-memory and the real file backend.
 type backendFactory struct {
 	name    string
-	dir     func(t *testing.T) string // "" for memory
 	options Options
 	reopen  func(t *testing.T, dir string) (Store, error)
 }

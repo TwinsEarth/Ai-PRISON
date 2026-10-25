@@ -1,0 +1,140 @@
+================================================================================
+ AI Prison — Benchmark Report (real measurements)
+================================================================================
+Go version  : go1.27.3 darwin/arm64
+CPU         : Apple M4 (10 logical CPUs reported as -10)
+Date (UTC)  : 2026-10-25T15:47:33Z
+GOFLAGS     : -mod=mod
+Command     : go test -run '^$' -bench=. -benchmem ./...
+Notes       : b.ResetTimer() excludes system/System construction; disk benches use
+              b.TempDir(); all numbers below are measured, never estimated.
+--------------------------------------------------------------------------------
+
+### revocation ###
+goos: darwin
+goarch: arm64
+pkg: github.com/ai-prison/ai-prison/internal/revocation
+cpu: Apple M4
+BenchmarkIsUsableRevokedHit-10       	161183832	         7.420 ns/op	       0 B/op	       0 allocs/op
+BenchmarkIsRevokedLargeSet-10        	182599879	         6.609 ns/op	       0 B/op	       0 allocs/op
+BenchmarkIsRevokedLargeSetMiss-10    	198818534	         6.849 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/ai-prison/ai-prison/internal/revocation	6.146s
+### audit ###
+goos: darwin
+goarch: arm64
+pkg: github.com/ai-prison/ai-prison/internal/audit
+cpu: Apple M4
+BenchmarkChainAppend-10    	  948619	      1107 ns/op	    1807 B/op	      17 allocs/op
+PASS
+ok  	github.com/ai-prison/ai-prison/internal/audit	1.127s
+# .
+no Go files in /Users/fang/Doubao/chats/2026-10-25/new-chat/ai-prison
+FAIL	. [setup failed]
+goos: darwin
+goarch: arm64
+pkg: github.com/ai-prison/ai-prison/internal/audit
+cpu: Apple M4
+BenchmarkVerify_100k-10    	     100	  78148348 ns/op	74404511 B/op	 1100012 allocs/op
+PASS
+ok  	github.com/ai-prison/ai-prison/internal/audit	8.172s
+### store (fsync-heavy: small N) ###
+goos: darwin
+goarch: arm64
+pkg: github.com/ai-prison/ai-prison/internal/store
+cpu: Apple M4
+BenchmarkAppendSyncEveryAppend-10    	     200	   8184113 ns/op	    4325 B/op	      52 allocs/op
+PASS
+ok  	github.com/ai-prison/ai-prison/internal/store	1.727s
+goos: darwin
+goarch: arm64
+pkg: github.com/ai-prison/ai-prison/internal/store
+cpu: Apple M4
+BenchmarkAppendBatched-10    	    2000	     33541 ns/op	    2702 B/op	      31 allocs/op
+PASS
+ok  	github.com/ai-prison/ai-prison/internal/store	0.132s
+goos: darwin
+goarch: arm64
+pkg: github.com/ai-prison/ai-prison/internal/store
+cpu: Apple M4
+BenchmarkReplayVerify-10    	     200	  16496341 ns/op	21731512 B/op	  210837 allocs/op
+PASS
+ok  	github.com/ai-prison/ai-prison/internal/store	4.115s
+### governance ###
+goos: darwin
+goarch: arm64
+pkg: github.com/ai-prison/ai-prison/internal/governance
+cpu: Apple M4
+BenchmarkFullCaseToVerdict-10    	  512848	      2299 ns/op	   11525 B/op	      60 allocs/op
+PASS
+ok  	github.com/ai-prison/ai-prison/internal/governance	1.250s
+### resource ###
+goos: darwin
+goarch: arm64
+pkg: github.com/ai-prison/ai-prison/internal/enforcement/resource
+cpu: Apple M4
+BenchmarkDepriveFullSequence-10    	  413037	      2621 ns/op	    5881 B/op	      72 allocs/op
+PASS
+ok  	github.com/ai-prison/ai-prison/internal/enforcement/resource	1.170s
+### prison ###
+goos: darwin
+goarch: arm64
+pkg: github.com/ai-prison/ai-prison/internal/prison
+cpu: Apple M4
+BenchmarkRunScenarioAInMemory-10     	   17347	     69788 ns/op	  102605 B/op	    1092 allocs/op
+BenchmarkRunScenarioAFileStore-10    	     123	   9809844 ns/op	  281991 B/op	    2303 allocs/op
+PASS
+ok  	github.com/ai-prison/ai-prison/internal/prison	4.225s
+### audit Verify_1k / Verify_10k (corrected run) ###
+goos: darwin
+goarch: arm64
+pkg: github.com/ai-prison/ai-prison/internal/audit
+cpu: Apple M4
+BenchmarkVerify_1k-10     	    2000	    784259 ns/op	  744760 B/op	   11002 allocs/op
+BenchmarkVerify_10k-10    	    2000	   7999962 ns/op	 7444050 B/op	  110010 allocs/op
+PASS
+ok  	github.com/ai-prison/ai-prison/internal/audit	17.668s
+
+--------------------------------------------------------------------------------
+ BINARY / CLI SYSTEM MEASUREMENTS (real, on Apple M4)
+--------------------------------------------------------------------------------
+Built with: make build  (go1.27.3 darwin/arm64, -trimpath -ldflags "-s -w")
+Binary size: 3,329,826 bytes (~3.2 MB)
+
+Startup latency  (`bin/aiprison version`, 20 runs):
+  min=2.4ms  median=2.7ms  mean=3.1ms  max=7.3ms
+
+`demo` end-to-end wall (3 runs): ~11.7 ms
+  peak RSS (/usr/bin/time -l maximum resident set size): 7,159,808 bytes (~6.8 MiB)
+  peak memory footprint: 4,489,768 bytes
+
+`drill` end-to-end wall (3 runs): ~11.0 ms
+  peak RSS: 7,602,176 bytes (~7.2 MiB)
+  peak memory footprint: 5,194,304 bytes
+
+--------------------------------------------------------------------------------
+ INTERPRETATION / NO-OPTIMIZATION NEEDED
+--------------------------------------------------------------------------------
+* revocation.IsRevoked against a 100k-entry set: ~6.6-6.8 ns/op, 0 allocs —
+  a single RLocked map lookup; no change possible.
+* audit.Chain.Append: 1,107 ns/op, 17 allocs — JSON canonicalisation + SHA-256
+  per event; inherent to the hash chain.
+* audit.Verify scales linearly O(n): 1k=0.78ms, 10k=8.0ms, 100k=78.1ms
+  (~1.27M events/s verify throughput). This re-derives every digest; it is the
+  correctness boundary and was not optimised away.
+* store AppendSyncEveryAppend: 8.18 ms/op — dominated by one fsync + atomic
+  directory-rename per record (durable by design).
+* store AppendBatched (SegmentSize=256): 33.5 us/op — ~244x faster by amortising
+  fsync across 256 records. The design already batches fsync; no further change
+  would improve crash-consistency, so none was made.
+* store ReplayVerify (10k records): 16.5 ms per reopen (JSONL decode + full
+  re-hash) — acceptable for a cold-start recovery drill.
+* governance FullCaseToVerdict (7-stage, 2-phase): 2.29 us/case.
+* resource DepriveFullSequence (5-step incl. snapshot): 2.62 us/case.
+* prison RunScenarioA in-memory: 69.8 us/journey; on FileStore: 9.81 ms/journey
+  (the delta is the fsync-bound ledger close, consistent with store numbers).
+* Binary is ~3.2 MB, starts in ~2.7 ms, demo/drill run in ~11 ms with <8 MiB RSS.
+
+No before/after optimisation table is included because no correctness-changing
+optimisation was warranted: the hot paths are already O(1) appends and
+deliberately fsync-batched; the O(n) Verify is the tamper-detection contract.

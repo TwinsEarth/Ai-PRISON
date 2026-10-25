@@ -118,7 +118,7 @@ func short(h string) string {
 	return h[:12]
 }
 
-// print renders the Journey as segmented Chinese (key terms bilingual) text.
+// Print renders the Journey as segmented Chinese (key terms bilingual) text.
 // It is used by the CLI demo; tests assert on structured fields instead.
 func (j *Journey) Print() string {
 	var b strings.Builder

@@ -280,11 +280,11 @@ func NewSystem(cfg Config) *System {
 }
 
 // Clock exposes the fixed clock for callers that need deterministic timestamps.
-func (s *System) Clock() time.Time { return s.clock().UTC() }
+func (sys *System) Clock() time.Time { return sys.clock().UTC() }
 
 // RuntimeStatus returns the orchestrator's simulated runtime status projection.
-func (s *System) RuntimeStatus(a domain.AgentID) domain.AgentStatus {
-	return s.runtimeStatus[a]
+func (sys *System) RuntimeStatus(a domain.AgentID) domain.AgentStatus {
+	return sys.runtimeStatus[a]
 }
 
 // resourceCredID is the deterministic resource-credential handle per agent.

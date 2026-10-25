@@ -118,6 +118,9 @@ func (e *Engine) Deprive(in DepriveInput) (*DepriveReport, error) {
 	if e.Backend == nil {
 		return nil, fmt.Errorf("resource: deprivation needs a Backend")
 	}
+	if e.Snapshots == nil {
+		return nil, fmt.Errorf("resource: deprivation needs a SnapshotStore")
+	}
 
 	rep := &DepriveReport{SentenceID: in.SentenceID, AgentID: in.AgentID}
 

@@ -1,0 +1,77 @@
+================================================================================
+ AI Prison — Static Analysis Report (staticcheck)
+================================================================================
+
+Tool        : honnef.co/go/tools/cmd/staticcheck
+Version     : staticcheck 2026.2.2 (0.8.2)
+Go version  : go1.27.3 darwin/arm64 (apple M-series, arm64)
+Date (UTC)  : 2026-10-25T15:32:51Z
+Invoked from: repo root /Users/fang/Doubao/chats/2026-10-25/new-chat/ai-prison
+GOFLAGS     : -mod=mod
+GOPROXY     : https://goproxy.cn,direct
+
+Install     : go install honnef.co/go/tools/cmd/staticcheck@latest
+              (installed into $GOPATH/bin; NOT added to go.mod — pure-stdlib rule
+               preserved: staticcheck is a local developer tool only)
+
+--------------------------------------------------------------------------------
+ COMMANDS
+--------------------------------------------------------------------------------
+  staticcheck -version
+  staticcheck ./...                 # default checks (SA*, S*, ST*, etc. minus style)
+  staticcheck -checks all ./...     # includes style checks (STxxxx)
+
+
+--------------------------------------------------------------------------------
+ INITIAL RUN (staticcheck ./...) — 4 findings, ALL FIXED
+--------------------------------------------------------------------------------
+internal/audit/receiptbook.go:175:23: func (*ReceiptBook).pendingCount is unused (U1000)
+internal/enforcement/migration/custody.go:15:6: type custodianShare is unused (U1000)
+internal/prison/persist_test.go:175:21: do not pass a nil Context, even if a function
+  permits it; pass context.TODO if you are unsure about which Context to use (SA1012)
+internal/store/store_test.go:23:2: field dir is unused (U1000)
+
+Fixes applied (minimal, behaviour-preserving):
+  [U1000] internal/audit/receiptbook.go
+          Removed dead method (*ReceiptBook).pendingCount(). It was never called
+          anywhere in the live or test paths; no behaviour change. The pending-vs-
+          acked signal is already surfaced by UntrustedNodes() and All().
+  [U1000] internal/enforcement/migration/custody.go
+          Removed unused type custodianShare{...}; shares are stored inline as
+          map[string]string (custodian -> token). The simulated-share semantics are
+          preserved in the doc comment above sealedCustodyRow.
+  [SA1012] internal/prison/persist_test.go
+          collectAll() now passes context.Background() instead of a nil context to
+          FileStore.Replay. Added "context" import.
+  [U1000] internal/store/store_test.go
+          Removed never-set, never-read `dir` field from backendFactory test helper.
+
+--------------------------------------------------------------------------------
+ OPTIONAL STYLE RUN (staticcheck -checks all ./...) — 3 findings, ALL FIXED
+--------------------------------------------------------------------------------
+internal/governance/adapters.go:43:1: comment on exported function NewPrincipalLookup
+  should be of the form "NewPrincipalLookup ..." (ST1020)
+internal/prison/journey.go:121:1: comment on exported method Print should be of the
+  form "Print ..." (ST1020)
+internal/prison/pipeline.go:356:20: methods on the same type should have the same
+  receiver name (seen 21x "sys", 2x "s") (ST1016)
+
+Fixes applied:
+  [ST1020] internal/governance/adapters.go
+          Comment re-worded to start with "NewPrincipalLookup ..." (the exported
+          identifier). Body unchanged.
+  [ST1020] internal/prison/journey.go
+          Comment re-worded to start with "Print ..." (was "print ...").
+  [ST1016] internal/prison/system.go
+          Renamed receiver `s *System` -> `sys *System` on Clock() and
+          RuntimeStatus() so all 23 *System methods share the receiver name `sys`.
+
+--------------------------------------------------------------------------------
+ FINAL STATE
+--------------------------------------------------------------------------------
+  $ staticcheck ./...            -> (no output)  exit 0
+  $ staticcheck -checks all ./... -> (no output)  exit 0
+
+NO ISSUES REMAIN. go build ./..., go vet ./..., go test ./... all green after the
+fixes (see coverage / review-findings / benchmark reports for the rest of the
+v1.1 hardening pass).

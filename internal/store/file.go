@@ -118,7 +118,10 @@ func (f *FileStore) CleanedTempFiles() int {
 }
 
 // Append adds one record and, when SyncEveryAppend is set, publishes it durably.
-func (f *FileStore) Append(_ context.Context, kind string, payload any) (Record, error) {
+func (f *FileStore) Append(ctx context.Context, kind string, payload any) (Record, error) {
+	if err := ctx.Err(); err != nil {
+		return Record{}, err
+	}
 	if f.readOnly {
 		return Record{}, fmt.Errorf("store: %s opened read-only", f.dir)
 	}
@@ -155,7 +158,10 @@ func (f *FileStore) Append(_ context.Context, kind string, payload any) (Record,
 }
 
 // Sync atomically publishes the buffered active segment.
-func (f *FileStore) Sync(_ context.Context) error {
+func (f *FileStore) Sync(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if f.readOnly {
 		return nil
 	}

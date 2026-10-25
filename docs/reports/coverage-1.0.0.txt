@@ -1,0 +1,101 @@
+================================================================================
+ AI Prison — Coverage Report
+================================================================================
+
+Go version  : go1.27.3 darwin/arm64
+Date (UTC)  : 2026-10-25
+GOFLAGS     : -mod=mod
+Command     :
+  go test -coverprofile=coverage.txt -covermode=atomic ./...
+  go tool cover -func=coverage.txt
+
+--------------------------------------------------------------------------------
+ TOTAL
+--------------------------------------------------------------------------------
+  total (statements) : 71.9%   (was 66.0% before the v1.1 hardening tests)
+
+--------------------------------------------------------------------------------
+ PER-PACKAGE SELF COVERAGE  (go test -cover ./...  — each package measured by
+ its own in-package tests; this is the headline number)
+--------------------------------------------------------------------------------
+  Package                                  Self-coverage   After-hardening
+  github.com/ai-prison/ai-prison/internal/revocation        84.3%
+  github.com/ai-prison/ai-prison/internal/audit             89.0%
+  github.com/ai-prison/ai-prison/internal/store            75.2%   (was 69.1%)
+  github.com/ai-prison/ai-prison/internal/enforcement/resource        78.5%
+  github.com/ai-prison/ai-prison/internal/enforcement/isolation       89.5%
+  github.com/ai-prison/ai-prison/internal/enforcement/identity         77.0%
+  github.com/ai-prison/ai-prison/internal/enforcement/migration       80.5%
+  github.com/ai-prison/ai-prison/internal/enforcement/capability     71.1%
+  github.com/ai-prison/ai-prison/internal/governance        78.4%
+  github.com/ai-prison/ai-prison/internal/prison            76.0%   (was 55.3%)
+  github.com/ai-prison/ai-prison/internal/domain            78.3%
+  cmd/aiprison / examples/basic : 0.0% (CLI main wrappers; covered by e2e /
+       smoke subprocess tests in ./test and ./scripts/smoke.sh, not by -cover).
+
+--------------------------------------------------------------------------------
+ WHOLE-SUITE COVERAGE  (go test -coverpkg=./internal/... ./... — how much of
+ each internal file is exercised by ALL tests, including the cross-process
+ e2e suite in ./test). Headline file-level numbers for the core packages:
+--------------------------------------------------------------------------------
+  internal/revocation/revocation.go        98.1%
+  internal/audit/chain.go                  97.9%
+  internal/audit/compliance.go            100.0%
+  internal/audit/receiptbook.go            90.0%
+  internal/store/file.go                   82.2%
+  internal/store/memory.go                 95.7%
+  internal/store/errors.go                 52.1%   (error strings only)
+  internal/store/store.go                  62.5%
+  internal/enforcement/resource/snapshot.go  96.4%
+  internal/enforcement/resource/inmemory.go  86.0%
+  internal/enforcement/resource/deprive.go  49.0%   (deprivation step ladder)
+  internal/enforcement/isolation/*.go      86–100%
+  internal/enforcement/identity/service.go  52.7%
+  internal/enforcement/migration/custody.go 77.3%
+  internal/enforcement/capability/*.go     66–95%
+  internal/governance/statemachine.go       91.7%
+  internal/governance/case.go              88.9%
+  internal/prison/system.go                99.8%
+  internal/prison/persist.go               86.3%
+  internal/prison/pipeline.go              85.8%
+  internal/prison/scenarios.go              87.8%
+  internal/prison/drill.go                 85.2%
+  internal/prison/journey.go               37.0%   (Chinese print formatting;
+                                                   covered by Print smoke)
+
+--------------------------------------------------------------------------------
+ TARGETED TESTS ADDED IN THIS HARDENING PASS
+--------------------------------------------------------------------------------
+  internal/prison/drill_test.go (new)
+    - TestRunRecoveryDrillAllPass     : drives the full L2..L5 recovery matrix
+                                        in-process; asserts every row PASS, the
+                                        chain verifies, L5 stays non-recoverable.
+    - TestDrillReportFailurePropagation : a single ok(false) flips the row and
+                                        Overall to FAIL.
+    - TestDrillReportPrintSmoke       : renders PASS and FAIL reports; guards
+                                        nil/index panics in the table path.
+    - TestTrunc / TestOrderIDNil      : rune-aware truncation, nil order accessor.
+    - TestSegmentCountEmptyAndMissing : CLI segment-count helper on empty /
+                                        missing / populated dirs.
+    These lifted prison from 55.3% -> 76.0% self coverage and brought the
+    previously-untested Drill()/RunRecoveryDrill()/drillL2..L5/report.Print()
+    paths under direct assertion (they were previously only hit by the
+    cross-process `aiprison drill` e2e test).
+
+  internal/store/coverage_test.go (new)
+    - TestAccessorsCovered            : FileStore.Path/Persisted, MemoryStore.Path/Len.
+    - TestNewMemoryStoreWithClock     : injected clock drives At deterministically;
+                                        nil clock falls back to time.Now.
+    - TestMarshalPayloadEdges         : nil / empty-RawMessage / invalid-RawMessage /
+                                        non-JSON payload branches.
+    - TestRepairTornTailNoOpPaths     : empty dir, clean trailing newline, valid
+                                        single-line file (no-op early returns).
+    These lifted store from 69.1% -> 75.2% self coverage.
+
+  Notes on remaining low areas (not churned for coverage %):
+    - internal/prison/journey.go (~37%): mostly Chinese fixed-width table
+      formatting helpers; TestDrillReportPrintSmoke exercises the main path.
+    - internal/enforcement/resource/deprive.go (~49%): the step-ladder error
+      branches are exercised indirectly by the e2e resource benchmark/scenario;
+      they are defensive guards, not new business logic.
+    - internal/store/errors.go: only Error() string formatting variants.

@@ -170,16 +170,3 @@ func (b *ReceiptBook) UntrustedNodes() []string {
 	sort.Strings(out)
 	return out
 }
-
-// pendingCount returns how many receipts are still awaiting an ack.
-func (b *ReceiptBook) pendingCount() int {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	n := 0
-	for _, id := range b.order {
-		if b.receipts[id].Status == domain.ReceiptPending {
-			n++
-		}
-	}
-	return n
-}

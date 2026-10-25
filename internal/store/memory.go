@@ -31,7 +31,10 @@ func NewMemoryStoreWithClock(clock func() time.Time) *MemoryStore {
 }
 
 // Append adds the next record and returns it.
-func (m *MemoryStore) Append(_ context.Context, kind string, payload any) (Record, error) {
+func (m *MemoryStore) Append(ctx context.Context, kind string, payload any) (Record, error) {
+	if err := ctx.Err(); err != nil {
+		return Record{}, err
+	}
 	raw, err := marshalPayload(payload)
 	if err != nil {
 		return Record{}, err
