@@ -4,6 +4,11 @@ All notable changes to AI Prison are documented in this file. The format is
 loosely based on [Keep a Changelog](https://keepachangelog.com/), and the
 project follows [semver](https://semver.org/).
 
+## [1.0.4] - 2026-10-26
+
+### Added
+- 越狱防御定位——动态行为镣铐（运行时监测非法调用）、静态特征扫描（代码审计）、对抗样本防御等多重机制。纯文档/版本 patch，无 Go 业务逻辑改动。
+
 ## [1.0.3] - 2026-10-26
 
 ### Added
