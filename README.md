@@ -9,6 +9,7 @@
 >
 > - **虚拟沙盒**：软件层面的隔离机制，把可能危险的 AI 关进受控环境运行，防止它接触真实系统。
 > - **隔离执行环境**：用容器技术（比如 Docker）构建沙箱，让 AI 算法在完全隔离的环境中运行，无法突破到宿主机。
+> - **行为监控模块**：实时记录 AI 的所有系统调用、网络请求和资源使用情况，生成详细行为日志供分析。
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![go: 1.27](https://img.shields.io/badge/go-1.27-00ADD8.svg)](https://go.dev)

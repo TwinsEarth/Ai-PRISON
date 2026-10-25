@@ -4,6 +4,11 @@ All notable changes to AI Prison are documented in this file. The format is
 loosely based on [Keep a Changelog](https://keepachangelog.com/), and the
 project follows [semver](https://semver.org/).
 
+## [1.0.3] - 2026-10-26
+
+### Added
+- 行为监控模块定位——实时记录系统调用/网络请求/资源使用，生成详细行为日志供分析。纯文档/版本 patch，无 Go 业务逻辑改动。
+
 ## [1.0.2] - 2026-10-26
 
 ### Added
