@@ -4,6 +4,11 @@ All notable changes to AI Prison are documented in this file. The format is
 loosely based on [Keep a Changelog](https://keepachangelog.com/), and the
 project follows [semver](https://semver.org/).
 
+## [1.0.1] - 2026-10-26
+
+### Added
+- 一句话产品定位——AI 监狱即面向 AI 的虚拟沙盒（软件层受控隔离，防止危险 AI 接触真实系统）。纯文档/版本 patch，无 Go 业务逻辑改动。
+
 ## [1.0.0]
 
 v1.0.0 is the first stable release of the defensive AI-agent governance stack. On top of the

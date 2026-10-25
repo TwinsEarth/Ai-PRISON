@@ -3,6 +3,12 @@
 > Graduated capability deprivation and behaviour correction for AI agents.
 > 面向 AI Agent 的分级能力剥夺与行为矫正基础设施。
 
+> **给 AI 设计的"监狱"——虚拟沙盒**：这更像一种软件层面的隔离机制，核心思路是把可能危险的 AI 关进受控环境里运行，防止它接触真实系统。
+>
+> 通俗地说，它由六道相互配合的防线组成：
+>
+> - **虚拟沙盒**：软件层面的隔离机制，把可能危险的 AI 关进受控环境运行，防止它接触真实系统。
+
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![go: 1.27](https://img.shields.io/badge/go-1.27-00ADD8.svg)](https://go.dev)
 [![deps: stdlib-only](https://img.shields.io/badge/deps-stdlib%20only-success.svg)](#design-constraints)

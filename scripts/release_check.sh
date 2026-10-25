@@ -22,24 +22,25 @@ for w in ci.yml compat.yml release.yml; do
 done
 
 # --- 2. version consistency (four places) -------------------------------
-want="1.0.0"
-if grep -Eq '^[[:space:]]*version[[:space:]]*=[[:space:]]*"1\.0\.0"' cmd/aiprison/main.go; then
+# Derive the expected version from the topmost "## [x.y.z]" CHANGELOG section
+# so the gate stays correct across patches without editing this script.
+want=$(grep -E -m1 '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')
+[ -n "${want}" ] || { echo "[FAIL] could not derive version from CHANGELOG"; exit 1; }
+want_re=$(echo "${want}" | sed 's/\./\\./g')
+
+if grep -Eq "^[[:space:]]*version[[:space:]]*=[[:space:]]*\"${want_re}\"" cmd/aiprison/main.go; then
   ok "CLI version = \"${want}\" (cmd/aiprison/main.go)"
 else
   bad "cmd/aiprison/main.go: var version is not \"${want}\""
 fi
 
-# CHANGELOG must contain a release section. NOTE: if the current CHANGELOG
-# still has everything under "## [Unreleased]", folding it into
-# "## [1.0.0]" is a release-time step done before tagging — this check then
-# flips to PASS.
-if grep -Eq '^## \['"${want}"'\]' CHANGELOG.md; then
+if grep -Eq "^## \[${want_re}\]" CHANGELOG.md; then
   ok "CHANGELOG.md has section ## [${want}]"
 else
-  bad "CHANGELOG.md has no '## [${want}]' section (fold [Unreleased] -> [${want}] before tagging)"
+  bad "CHANGELOG.md has no '## [${want}]' section"
 fi
 
-if grep -Eq '"version"[[:space:]]*:[[:space:]]*"1\.0\.0"' npm/package.json; then
+if grep -Eq "\"version\"[[:space:]]*:[[:space:]]*\"${want_re}\"" npm/package.json; then
   ok "npm/package.json version = \"${want}\""
 else
   bad "npm/package.json version is not \"${want}\""
