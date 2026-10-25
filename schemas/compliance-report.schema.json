@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-prison.local/schemas/compliance-report.schema.json",
+  "title": "ComplianceReport",
+  "description": "Contrasts per-hop compliance with end-to-end compliance. When they conflict, the cause is the verification granularity, not a single node.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sentenceId", "perHopCompliant", "endToEndCompliant", "pendingReceipts", "untrustedNodes"],
+  "properties": {
+    "sentenceId": { "type": "string" },
+    "perHopCompliant": { "type": "boolean" },
+    "endToEndCompliant": { "type": "boolean" },
+    "pendingReceipts": { "type": "integer", "minimum": 0 },
+    "untrustedNodes": { "type": "integer", "minimum": 0 },
+    "notes": { "type": "string" }
+  }
+}

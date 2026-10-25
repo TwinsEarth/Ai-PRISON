@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-prison.local/schemas/event.schema.json",
+  "title": "Event",
+  "description": "A single immutable record in the judgement hash chain. Each entry links to the previous by hash.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["index", "type", "timestamp"],
+  "properties": {
+    "index": { "type": "integer", "minimum": 0 },
+    "type": {
+      "type": "string",
+      "enum": [
+        "violation.detected", "adjudication.completed", "sentence.issued",
+        "revocation.written", "allocation.stopped", "resource.reclaimed",
+        "receipt.acked", "node.marked_untrusted", "agent.isolated",
+        "capability.blocked", "migration.suppressed", "identity.revoked",
+        "snapshot.sealed", "appeal.filed", "appeal.ruled",
+        "rehabilitation.evaluated", "agent.restored"
+      ]
+    },
+    "agentId": { "type": "string" },
+    "sentenceId": { "type": "string" },
+    "actor": { "type": "string" },
+    "payload": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "prevHash": { "type": "string" },
+    "hash": { "type": "string" }
+  }
+}

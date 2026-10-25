@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-prison.local/schemas/accountability-record.schema.json",
+  "title": "AccountabilityRecord",
+  "description": "Couples an agent-side disposition to a human-side responsibility outcome. Every sentence carries at least one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["party", "role", "finding", "withinAuthorization", "reason", "recordedAt"],
+  "properties": {
+    "party": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "role"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "contact": { "type": "string" }
+      }
+    },
+    "role": {
+      "type": "string",
+      "enum": ["principal", "deployer", "model_provider"]
+    },
+    "finding": {
+      "type": "string",
+      "enum": [
+        "none",
+        "joint_liability",
+        "monitoring_duty_review",
+        "capability_control_duty_review"
+      ]
+    },
+    "withinAuthorization": { "type": "boolean" },
+    "reason": { "type": "string" },
+    "recordedAt": { "type": "string", "format": "date-time" }
+  }
+}

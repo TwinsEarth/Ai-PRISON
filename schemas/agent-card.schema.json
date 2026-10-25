@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-prison.local/schemas/agent-card.schema.json",
+  "title": "AgentCard",
+  "description": "Public, verifiable profile of an Agent identity. L5 disposition sets revoked=true and voids the card.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["did", "name", "modelProvider", "capabilities", "endpoints", "validFrom", "validUntil", "revoked", "version"],
+  "properties": {
+    "did": { "type": "string", "minLength": 1 },
+    "name": { "type": "string" },
+    "modelProvider": { "type": "string" },
+    "capabilities": { "type": "array", "items": { "type": "string" } },
+    "endpoints": { "type": "array", "items": { "type": "string" } },
+    "validFrom": { "type": "string", "format": "date-time" },
+    "validUntil": { "type": "string", "format": "date-time" },
+    "revoked": { "type": "boolean" },
+    "version": { "type": "string" }
+  }
+}

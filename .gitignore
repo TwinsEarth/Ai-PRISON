@@ -1,0 +1,23 @@
+# Binaries
+/bin/
+/dist/
+aiprison
+*.exe
+*.test
+*.out
+
+# Go test/coverage
+coverage.txt
+coverage.html
+*.cover
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*~
+
+# Local runtime/scratch (demo state, sealed snapshots)
+/.runtime/
+/var/

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-prison.local/schemas/revocation-entry.schema.json",
+  "title": "RevocationEntry",
+  "description": "An entry in the read-only global revocation set. Presence here rejects a credential before its expiry is even checked.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "agentId", "kind", "sentenceId", "reason", "revokedAt", "enforced"],
+  "properties": {
+    "id": { "type": "string", "description": "The revoked credential identifier." },
+    "agentId": { "type": "string" },
+    "kind": {
+      "type": "string",
+      "enum": ["resource", "identity", "communication", "capability", "hardware", "privileged_token"]
+    },
+    "sentenceId": { "type": "string" },
+    "reason": { "type": "string" },
+    "revokedAt": { "type": "string", "format": "date-time" },
+    "enforced": {
+      "type": "boolean",
+      "description": "True only after every holding node has acknowledged; unacknowledged nodes are frozen as a group."
+    },
+    "acknowledgedBy": { "type": "array", "items": { "type": "string" } }
+  }
+}

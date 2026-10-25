@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-prison.local/schemas/receipt.schema.json",
+  "title": "Receipt",
+  "description": "Signed acknowledgement that one enforcement node carried out an operation. Broadcast is not delivery.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "operation", "sentenceId", "nodeId", "status", "beforeStateHash", "afterStateHash", "signature", "issuedAt"],
+  "properties": {
+    "id": { "type": "string" },
+    "operation": { "type": "string" },
+    "sentenceId": { "type": "string" },
+    "nodeId": { "type": "string" },
+    "status": { "type": "string", "enum": ["pending", "acked", "missing"] },
+    "beforeStateHash": { "type": "string" },
+    "afterStateHash": { "type": "string" },
+    "signature": { "type": "string" },
+    "issuedAt": { "type": "string", "format": "date-time" },
+    "ackedAt": { "type": ["string", "null"], "format": "date-time" }
+  }
+}
