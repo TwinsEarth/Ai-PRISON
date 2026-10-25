@@ -6,6 +6,35 @@ project follows [semver](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0]
+
+### Added
+- `internal/revocation`: the global, append-only, idempotent revocation set
+  (`Set`, `Entry` aligned with `schemas/revocation-entry.schema.json`).
+  - `Set.Revoke` / `IsRevoked` implement `domain.RevocationChecker`: revocation
+    is consulted before state and before expiry by
+    `domain.Credential.IsUsable`. Writes are idempotent and there is no remove
+    path — a revoked credential stays revoked for the life of the set.
+  - Simulated cross-node acknowledgement: `Revoke(entry, holdingNodes)`,
+    `AckNode`, `UnacknowledgedNodes`; `enforced` flips true only once every
+    holding node has confirmed (empty holding list = immediately enforced).
+    `UnacknowledgedNodes` is the input the v0.6 group-freeze (连带冻结) flow
+    will consume.
+  - `List` / `Get` export detached, write-ordered snapshots for simulated
+    cross-node replication.
+- Unit tests: revoked-but-not-expired rejection through the real set,
+  idempotent re-revoke, enforced-only-after-full-ack, empty-node-list immediate
+  enforcement, unknown-credential acks, concurrent Revoke/IsRevoked (-race)
+  and ordered snapshot semantics.
+
+### Changed
+- No wire/contract break: `Entry` reuses existing domain types and the
+  existing revocation-entry schema; no schema changes required.
+
+### Security
+- In-memory/simulated only: no real network propagation, key ceremony or
+  enforcement backend. Defensive scope unchanged.
+
 ## [0.1.0]
 
 ### Added
