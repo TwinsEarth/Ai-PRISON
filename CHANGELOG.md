@@ -6,6 +6,43 @@ project follows [semver](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0]
+
+### Added
+- `internal/enforcement/capability`: the capability-blockade layer (能力封锁层),
+  per docs/02-technical-route.md §3 and docs/06-recovery-drills.md. Blockade is
+  NOT forgetting: post-hoc unlearning only suppresses, so this package models only
+  ARCHITECTURAL isolation (independent modules / compute graph / privileged
+  token) and REFUSES to run unless the agent is already inside a ready isolation
+  sandbox. Three paths, all interface + in-memory/simulated:
+  - **GRAM removable knowledge modules** — `GramRegistry` keeps one independent
+    module per abstract dual-use category (virology/cybersecurity/nuclear; NO
+    concrete dangerous knowledge). Removing a category zeroes only that
+    category's simulated availability; benign categories stay intact. A module
+    backup is retained so `RestoreModule` can re-attach it (docs/06 L4 reversible
+    drill).
+  - **Token Inoculation behaviour gating** — `TokenGate` keeps the dangerous
+    knowledge in the model but gates dangerous queries behind a privileged
+    control token: hold → answer, no token → refuse; `Revoke` makes the dangerous
+    behaviour unreachable without editing weights. The cited WMDP-Bio
+    79%→18% / 93% figures are recorded as constants (`RefDangerousAccuracy*`,
+    `RefBenignPerformanceRetained`) and are literature numbers, NOT measured here.
+  - **TLM tiered model** — `TLModel` supports private/public tiers via a
+    simulated compute-graph key. `Downgrade` to public drops the private
+    capability layer with no retraining/full deletion and mints a new
+    weight/compute-graph hash.
+  - **Unified orchestration** — `Service.Block(agentID, level, method)` enforces
+    the isolation precondition, applies GRAM / Token / TLM (or all), produces a
+    post-block hash that differs from the pre-block hash, and writes
+    `EventCapabilityBlocked` with before/after dangerous-vs-benign availability.
+    Idempotent and race-safe.
+
+### Notes
+- Everything is an interface + in-memory simulation: no real model/weights, no
+  real GRAM modules or compute-graph keys, no real privileged token, no real
+  capability removal. The package is strictly defensive (isolation/audit/
+  accountability) and contains no escape/attack/weaponization content.
+
 ## [0.8.0]
 
 ### Added
