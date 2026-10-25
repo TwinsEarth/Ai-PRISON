@@ -6,6 +6,61 @@ project follows [semver](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0]
+
+### Added
+- `internal/enforcement/identity`: the identity-and-communication layer (身份与
+  通信层), per docs/02-technical-route.md section 5.
+  - **DID / AgentCard revocation** — `Service.RevokeIdentity` writes BOTH the
+    identity credential (`identity:<agent>`) and the communication credential
+    (`communication:<agent>`) into the authoritative global revocation set
+    (`internal/revocation`) and flips `AgentCard.Revoked` / agent status to
+    `identity_revoked`. The real `revocation.Set` is reused as the
+    `domain.RevocationChecker`, so a still-in-window credential is rejected by
+    `domain.Credential.IsUsable` (revocation checked before expiry/state) —
+    the "revoked but not expired" rule is not re-implemented.
+  - **Communication cut + forced receipts + collateral group freeze
+    (回执强制 / 连带冻结)** — an in-memory `NetworkTopology` models node↔agent
+    placement. `CutCommunication` registers one pending
+    `communication.cut` receipt on every node carrying the channel; untrusted
+    judgment is delegated to the audit receipt book
+    (`ReceiptBook.UntrustedNodes`, pending/missing = untrusted — the single
+    source of truth, not a second un-acked set). A node that never acks is
+    untrusted and EVERY agent on it — not only the sentenced one — receives a
+    `FreezeOrder` (`GroupFreeze=true` for collateral agents). "Broadcast" is
+    never treated as "delivered". `AckNode` acknowledges and re-projects.
+  - **Human accountability coupling (人类问责耦合)** — `DetermineAccountability`
+    maps within-authorisation → principal joint liability, out-of-authorisation
+    → deployer monitoring-duty review, and dual-use-knowledge exploitation →
+    additive model-provider capability-control-duty review.
+    `ValidateAccountability` enforces the mandatory invariant: every identity
+    revocation MUST carry at least one well-formed human record, otherwise the
+    disposition is refused and the revocation set is left untouched.
+  - Dependencies are small injected sinks (`RevocationSink` / `EventSink` /
+    `ReceiptController` / `NetworkTopology`) with real adapters in
+    `adapters.go` wiring `*revocation.Set`, `*audit.Chain`, `*audit.ReceiptBook`
+    — the same DI style as `internal/enforcement/resource`.
+- Unit tests: revoked-but-not-expired credentials rejected via the real set +
+  card revoked; all-ack → no untrusted node / no freeze; partial ack → silent
+  node untrusted and its innocent co-located agent collateral-frozen; idempotent
+  revocation (no duplicate entries); the three accountability rulings mapped to
+  principal/deployer/model-provider; a missing-accountability disposition
+  refused by the invariant gate; and concurrent revoke/cut/ack (-race).
+
+### Changed
+- No wire/contract break: reuses `domain.EventIdentityRevoked`,
+  `domain.EventNodeMarkedUntrusted`, `domain.EventReceiptAcked`,
+  `domain.CredentialIdentity` / `domain.CredentialCommunication` and the
+  existing revocation/receipt-book read/write APIs; no schema or domain field
+  semantics changed.
+
+### Simulation scope
+- Everything is in-memory, simulated and not a real identity/communication
+  control: no real DID network, no real message bus / PMB, no real node
+  communication. Topology, credentials, receipts and freeze orders live in
+  this process only. Strictly defensive (isolation, audit, accountability) —
+  no escape, attack, weaponization or credential-forgiveness content.
+
 ## [0.5.0]
 
 ### Added
