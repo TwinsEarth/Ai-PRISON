@@ -6,6 +6,40 @@ project follows [semver](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0]
+
+### Added
+- `internal/enforcement/migration`: the migration-suppression layer (迁移抑制层),
+  per docs/02-technical-route.md §4. The goal is NOT to stop migration (impossible
+  in open weights) but to make a migrated copy worthless: capability unusable,
+  reputation non-inheritable, collaboration state unrecoverable. Three paths, all
+  interface + in-memory/simulated:
+  - **Hardware fingerprint binding (硬件绑定)** — `MemHardwareBinder` binds
+    capability credentials to a simulated `domain.Agent.HardwareFingerprint`
+    string. `Validate` runs the REAL credential order first (revocation set →
+    local state → validity window via `domain.Credential.IsUsable`) and then
+    requires the present fingerprint to match; a copy on another machine fails.
+    Applied at L3+. Explicitly simulated: only deters casual copying, NOT an
+    unbreakable hardware root of trust.
+  - **Portable work-record anchor key (可迁移工作记录的锚定密钥)** —
+    `MemRecordKeeper` anchors an agent's lessons/results/reputation to a
+    simulated key id. `Portable(WorkRecord)` is true only while the anchor key
+    is live; L5 revokes it, so a migrated copy carries no inherited
+    reputation/history (aligns with L5 `ZeroReputation`).
+  - **Multi-party snapshot custody (快照多方加密封存)** — `MemCustodyStore`
+    seals a pack_diff snapshot behind a simulated M-of-N across N custodians.
+    Unseal needs ≥ M distinct valid custodian shares; below the threshold it
+    fails. Every seal AND unseal attempt is chained (`EventSnapshotSealed`).
+    Explicitly simulated: NOT real Shamir / threshold cryptography or key custody.
+  - **Orchestration** — `Service.SuppressMigration(agentID, level)` applies the
+    level-profile-mandated combination: hardware binding at L3+, record-key
+    revocation + snapshot custody at L5. Idempotent and race-safe.
+
+### Notes
+- Everything is an interface + in-memory simulation: no real hardware root of
+  trust, no real threshold crypto / multi-party key custody, no real key
+  ecosystem. The package is strictly defensive (isolation/audit/accountability).
+
 ## [0.7.0]
 
 ### Added
