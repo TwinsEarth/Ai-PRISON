@@ -62,3 +62,8 @@ tidy:
 
 clean:
 	rm -rf bin dist coverage.txt coverage.html
+
+release-check: ## Run the pre-release allow-list gate (files, version consistency, hygiene, no secrets)
+	bash scripts/release_check.sh
+
+.PHONY: release-check

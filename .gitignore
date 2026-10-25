@@ -1,6 +1,7 @@
 # Binaries
 /bin/
 /dist/
+/staging/
 /aiprison
 *.exe
 *.test
@@ -21,3 +22,8 @@ coverage.html
 # Local runtime/scratch (demo state, sealed snapshots)
 /.runtime/
 /var/
+
+# npm packaging (never ship pack output or fetched binaries)
+/npm/node_modules/
+/npm/vendor/
+*.tgz

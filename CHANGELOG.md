@@ -4,52 +4,68 @@ All notable changes to AI Prison are documented in this file. The format is
 loosely based on [Keep a Changelog](https://keepachangelog.com/), and the
 project follows [semver](https://semver.org/).
 
-## [Unreleased]
-
-### Hardening — static analysis, coverage, review fixes, benchmarks (v1.1)
-- **Static analysis (staticcheck 2026.2.2 / go1.27.3 darwin/arm64):** `staticcheck ./...` and `staticcheck -checks all ./...` both run clean (0 findings). Fixed the initial 4 U1000/SA1012 findings (dead `ReceiptBook.pendingCount`, unused `migration.custodianShare`, nil context in a test, unused test helper field) and 3 ST-style findings (comment/receiver-name consistency). Raw output + version saved to `docs/reports/staticcheck-1.0.0.txt`.
-- **Coverage:** `go test -coverprofile=coverage.txt -covermode=atomic ./...` total **71.9%** (up from 66.0%). Per-package self coverage: audit 89.0%, isolation 89.5%, revocation 84.3%, migration 80.5%, resource 78.5%, governance 78.4%, domain 78.3%, identity 77.0%, prison **76.0% (was 55.3%)**, store **75.2% (was 69.1%)**, capability 71.1%. Added `internal/prison/drill_test.go` (in-process recovery-matrix assertions) and `internal/store/coverage_test.go` (accessors, clock, payload edges, repair no-ops, cancelled-context). Summary in `docs/reports/coverage-1.0.0.txt`.
-- **Review fixes (see `docs/reports/review-findings-1.0.0.md`):**
-  - P1: `resource.Engine.Deprive` no longer nil-panics when `Snapshots` is unset — returns a clear configuration error (regression `TestDepriveNilSnapshotStoreReturnsError`).
-  - P2: `FileStore`/`MemoryStore` `Append`/`Sync` now honor `ctx.Err()` (a cancelled context aborts before any mutation; regression `TestAppendSyncHonorsCancelledContext`).
-  - Verified across all packages: no data races (`-race -count=2` green), segment filenames derive only from the global seq (no kind/payload path injection), hash inputs are deterministic (UTC RFC3339Nano, sorted keys), 212 comments mark GRAM/TLM/hardware/MicroVM/custody as simulated.
-- **Benchmarks (real `-benchmem`, Apple M4):** revocation lookup ~6.6 ns/op 0 allocs over a 100k-entry set; `audit.Chain.Append` 1.1 us/op; full-chain Verify scales linearly (1k=0.78 ms, 10k=8.0 ms, 100k=78 ms); FileStore AppendSyncEveryAppend 8.2 ms/op (fsync-per-record) vs batched 33.5 us/op (~244x); governance case-to-verdict 2.3 us; resource 5-step deprivation 2.6 us; `RunScenarioA` 69.8 us in-memory vs 9.81 ms on FileStore. Binary ~3.2 MB, starts in ~2.7 ms, `demo`/`drill` run in ~11 ms with <8 MiB peak RSS. Raw output in `docs/reports/benchmark-1.0.0.txt`. No correctness-changing optimisation was needed: hot paths are already O(1) and fsync-batched by design.
-
-### Added
-- **Real deployable binary with link-time version injection** (`Makefile`, `cmd/aiprison/main.go`):
-  - `make build` now produces a real, stripped, `-trimpath` binary at `bin/aiprison` (cross-compile target `bin/aiprison.exe` when `GOOS=windows`) and injects release metadata via `-ldflags -X main.version/main.commit/main.buildTime` — `VERSION` (default `1.0.0`), `COMMIT` (`git rev-parse --short HEAD`), UTC `BUILD_TIME`. The CLI's version metadata is now plain package variables (`var version/commit/buildTime`, defaults preserved) instead of a compile-time const.
-  - `aiprison version [-v|--verbose]` prints `aiprison <version>` and, with `-v`, the injected commit/build time (defaults to `unknown` when not injected; no error).
-  - `make build-examples` builds the basic example to `bin/examples-basic` (never leaves a root-level `basic`); `make clean` removes `bin/`, `dist/` and coverage files; `make smoke` runs the end-to-end script below.
-- **End-to-end smoke script on the real binary** (`scripts/smoke.sh`, `make smoke`): `mktemp -d` data directories removed by an EXIT trap (zero residue, re-runnable). It re-builds, then runs `demo --data-dir D1` in one process and re-opens the SAME binary with `inspect`/`verify` in fresh processes — asserting `CHAIN VERIFY: OK` and `INTEGRITY OK` — runs `drill --data-dir D2` → `verify`, asserts no leftover `.seg-*.tmp` files, asserts `help` exits 0 and an unknown command exits non-zero, and prints `SMOKE OK`.
-- **Zero-residue goroutine-leak detection, self-implemented with the standard library** (`test/leak_test.go`; no third-party dependency, no goleak): `runtime.NumGoroutine()` baselined before and after a full FileStore-backed System lifecycle (open → both scenarios → Close → reopen/replay → Close, twice), polling up to ~2 s for settle; plus repeated open/append/Sync/Close FileStore cycles asserting clean reopen, correct record count and no leftover temp segment files.
-- **Go compatibility floor lowered to `go 1.23`** (`go.mod`): a full import/feature audit found nothing newer than the `min`/`max` builtins (Go 1.21) — no `slices`/`maps`/`cmp`, no `errors.Join`, no enhanced `http.ServeMux` patterns, no range-over-func — so the module now declares `go 1.23` as the CI matrix floor (1.23/1.24/1.25) and still builds unchanged on newer toolchains. No `require`/`toolchain` directives added.
-
-### Boundary (execution backends still simulated)
-- This round adds deployment, durability verification, leak hygiene and compatibility ONLY. The execution backends remain in-memory simulations that do not resume across restarts: sandbox isolation, cgroup/quotas, real revocation distribution, hardware binding, GRAM/TLM and token stacks are NOT real. Strictly defensive: traceability, verifiability, accountable recovery.
-
-### Added
-- **Real persistence of the governance ledger** (`internal/store` already landed; v1.1 wires it into the orchestration and CLI). The judgement hash chain, revocation entries + node acks, execution receipts, sealed-snapshot metadata, agent registrations, adjudicated cases, issued sentences and the orchestrator's runtime-status projection now durably survive a process restart as an append-only, per-record-hash-chained JSONL event log:
-  - `internal/prison/persist.go`: optional `prison.Config.Store` (nil = pure memory, v1.0 behaviour/output/tests byte-for-byte unchanged). A recording chain sink mirrors every stamped `domain.Event`; clear journey boundaries (`DetectAndSentence` / `Enforce` / `Appeal` / `Rehabilitate` / `Finalize`, and every drill step) checkpoint the live substrates onto the ledger with idempotent, last-seen dedup.
-  - **Event-sourced restart**: opening a FileStore on an existing data dir replays the ledger into a fresh System — the audit chain re-feeds (identical index/prevHash/hash, `Chain.Verify` green), the revocation set re-`Revoke`s/`AckNode`s, the receipt book is restored verbatim (`audit.ReceiptBook.Restore`, backward-compatible), snapshot metadata is restored (`resource.MemSnapshotStore.Restore`/`All`, backward-compatible), and a read-only `Restored` agent projection (DID / principal / nodes / cardRevoked / reputation / level / status / sentences) is rebuilt.
-  - **`System.InspectView()`**: backend-independent structured snapshot (chain events + verify, revocation entries + enforced count, untrusted nodes, receipt counts, snapshot metadata, per-agent level/status/cardRevoked/reputation, sentences/cases) for both memory and ledger modes.
-- **CLI data directory & inspection commands** (`cmd/aiprison`):
-  - Global `--data-dir PATH` (before or after the subcommand); `demo`/`drill` persist when it is given and print the data dir plus `已落盘记录数 / 段数` at the end.
-  - `aiprison inspect --data-dir DIR`: read-only replay — `CHAIN VERIFY: OK`, rebuilt agents (id/level/status/cardRevoked/reputation), sentences/cases, enforced vs unenforced revocation entries, untrusted nodes, receipt counts, snapshot metadata.
-  - `aiprison verify --data-dir DIR`: `INTEGRITY OK` + exit 0 on a healthy ledger; on tamper/torn tail it prints the located file/seq/line and exits 1.
-  - `aiprison repair-tail --data-dir DIR`: removes ONLY a genuine torn (incomplete) tail line and reports the byte count; it refuses with `hard tamper, refusing to repair` on a tampered-but-complete record.
-- **Cross-process & fault-injection assertions** (`test/persistence_cli_test.go`, `TestMain` builds the real CLI to a temp dir once): demo→inspect→verify across processes (agent-7 L3/restored-active, agent-3 L5/identity_revoked/cardRevoked, revocation entries >0, snapshot metadata, record count matching the demo summary, verify exit 0); drill→inspect/verify; byte-tamper a published record → verify non-zero + tamper location; truncate the tail → verify reports torn tail → repair-tail recovers → verify exit 0 with one fewer record. In-process replay invariants live in `internal/prison/persist_test.go` (revoked-but-not-expired credentials stay `IsUsable()==false` after restart; L5 card revoked / reputation 0 / no restoration order; append-only growth; memory-vs-file projection equality).
-
-### Boundary
-- This is **real persistence for the governance/audit record only**. The execution backends remain simulated and unsaved across restarts: sandbox isolation, cgroup/quotas, real revocation distribution, hardware binding, GRAM/TLM and token stacks do NOT resume in a new process — the ledger records what those simulated components decided, so the next process can prove and re-enforce it. Strictly defensive: traceability, verifiability, accountable recovery.
-
 ## [1.0.0]
 
-v1.0.0 is the first stable, fully-local release: it turns docs/06's recovery-drill runbook
-into a runnable matrix, ships a buildable example, adds a traceable design→implementation
-matrix and release notes, and closes the docs/schema/code consistency loop. Pure Go,
-standard library only — `go.mod` is unchanged and still has zero third-party dependencies.
+v1.0.0 is the first stable release of the defensive AI-agent governance stack. On top of the
+runnable L0–L5 recovery drills, it turns the project from an in-memory demo into a real, deployable
+artifact by adding three things:
 
-### Added
+1. **Real, durable persistence of the governance ledger** — an append-only, per-record-hash-chained
+   JSONL event store with crash-safe segment rotation (`os.CreateTemp` + `fsync` + atomic `rename`
+   + directory fsync), event-sourced replay that rebuilds all governance state, and a unified
+   `Store` interface with one table-driven suite running the same consistency/concurrency/crash/
+   tamper tests against BOTH the memory and file backends.
+2. **A real, deployable binary** — `make build` produces a stripped `-trimpath bin/aiprison` with
+   link-time version/commit/build-time injection, and a cross-process smoke script proves
+   demo → exit → restart → inspect/verify on a real data directory.
+3. **Full quality + release engineering** — staticcheck clean, ~72% coverage, a self-implemented
+   goroutine/resource leak suite, a manual P0–P3 review with regression tests, real `-benchmem`
+   data, and five-channel release assets (CI, an OS×arch×Go compatibility matrix, an on-tag release
+   workflow, an npm package, and an allow-list release gate).
+
+Pure Go, standard library only: the module keeps **zero** third-party Go dependencies (no
+`go.sum`), and the `go` directive is `1.23` (the CI compatibility floor).
+
+### Added — real persistence of the governance ledger
+- **Unified `Store` interface + real file backend** (`internal/store`): the in-memory store and a
+  real `FileStore` implement the same `Store`, so one table-driven suite runs the consistency,
+  concurrency, crash and tamper tests against both backends. Records are JSONL with a monotonic
+  sequence number and a per-record hash chained to the previous one, rolled into fixed segments
+  (`seg-%010d.log`) via `os.CreateTemp` → `f.Sync()` → atomic `rename` → directory fsync. On open
+  the ledger is replayed (event sourcing) and the chain re-verified: a bad hash/link/sequence is
+  reported with its file, line, seq and offset; only a genuinely torn (incomplete) tail line is
+  repairable, while truncating a complete record is a hard tamper error that is never silently
+  accepted.
+- **Persistence wired into the orchestrator and CLI** (`internal/prison/persist.go`,
+  `system.go`, `pipeline.go`, `cmd/aiprison`): the judgement hash chain, revocation entries + node
+  acks, execution receipts, sealed-snapshot metadata, agent registrations, adjudicated cases,
+  issued sentences and the runtime-status projection durably survive a process restart when
+  `--data-dir` is set.
+  - Optional `prison.Config.Store` (nil = pure memory; the in-memory behaviour/output/tests stay
+    byte-for-byte unchanged). A recording sink mirrors every stamped `domain.Event`; journey
+    boundaries (`DetectAndSentence` / `Enforce` / `Appeal` / `Rehabilitate` / `Finalize`, and each
+    drill step) checkpoint the live substrates with idempotent, last-seen dedup.
+  - Event-sourced restart re-feeds the audit chain (identical index/prevHash/hash, `Chain.Verify`
+    green), re-applies revocations/node acks, restores receipts verbatim (`audit.ReceiptBook.Restore`)
+    and snapshot metadata (`resource.MemSnapshotStore.Restore/All`), and rebuilds a read-only
+    `Restored` agent projection (DID / principal / nodes / cardRevoked / reputation / level /
+    status / sentences). `System.InspectView()` returns the structured snapshot for both modes.
+  - CLI: global `--data-dir PATH` (before or after the subcommand); `demo`/`drill` persist when it
+    is set and print the data dir plus record/segment counts. `inspect` is a read-only replay,
+    `verify` returns `INTEGRITY OK` + exit 0 (or locates tamper/torn-tail + exit 1), and
+    `repair-tail` removes only a genuine torn tail and refuses hard tamper.
+- **Cross-process and fault-injection assertions** (`test/`): a `TestMain` builds the real CLI into
+  a `t.TempDir` and drives it with `os/exec` — demo → inspect → verify across separate processes
+  (agent-7 L3 restored-active, agent-3 L5 identity_revoked/cardRevoked/reputation 0, revocation
+  entries present, snapshots present, record count matching, verify exit 0); drill likewise; a
+  published record is byte-tampered (verify non-zero + location, repair refused) and the tail is
+  truncated (torn-tail reported → repaired → verify exit 0 with one fewer record). In-process
+  replay invariants cover revoked-but-not-expired credentials staying `IsUsable()==false` after
+  restart, L5 non-recovery (card revoked / reputation 0 / no restoration order), append-only
+  growth and memory-vs-file projection equality. Real measured runs: `demo` persists 80 records /
+  1 segment, `drill` 157 records.
+
+### Added — runnable recovery drills
 - **Runnable recovery drills** (`internal/prison/drill.go`, `cmd/aiprison drill`,
   `test/recovery_drill_test.go`). `aiprison drill` walks the docs/06 matrix level by level on
   dedicated drill agents and prints a structured PASS/FAIL report:
@@ -68,35 +84,99 @@ standard library only — `go.mod` is unchanged and still has zero third-party d
     non-portable and reputation stays zero.
   - A closing row verifies the shared judgement hash chain over every drill event. Any single
     failing assertion FAILS the whole drill (exit 1).
-- **Capability recovery entry points** (`internal/enforcement/capability/`, fully backward
-  compatible, additive):
-  - `TLModel.RestorePrivateLayer` — reverse of `Downgrade`, mints a new compute-graph hash.
-  - `TokenGate.Reissue` — re-authorizes a fresh control token only when a prior (revoked)
-    record exists; refuses a first-time grant.
-  - `Service.Recover(RecoverInput)` — orchestrates reversal inside the mandatory ready-sandbox
-    gate and enforces the L4 recertification gate, appending an `agent.restored` event.
+- **Capability recovery entry points** (`internal/enforcement/capability/`, backward-compatible
+  additive): `TLModel.RestorePrivateLayer` (reverse of `Downgrade`, mints a new compute-graph
+  hash); `TokenGate.Reissue` (re-authorizes a control token only when a prior revoked record
+  exists, refusing a first-time grant); `Service.Recover(RecoverInput)` (orchestrates reversal
+  inside the ready-sandbox gate and enforces the L4 recertification gate, appending an
+  `agent.restored` event).
 - **Buildable example** `examples/basic/main.go`: wires the in-memory `System`, runs the L3
-  journey and prints key facts plus the drill summary. `go build ./examples/...` passes; the
-  file header marks it as a simulated, defense-only demo.
-- **Traceable implementation matrix** `docs/IMPLEMENTATION.md`: a design-requirement →
-  implementation table covering the six technical paths, the five enforcement capabilities,
-  every level L0–L5, the four principles, the three hard problems, the four audit elements and
-  the governance lifecycle — each row gives the Go package/file, key type/function, the version
-  it landed in, and whether it is a *real in-memory implementation* or an *interface/simulation*
-  (GRAM / TLM / hardware binding / MicroVM / snapshot custody).
-- **Release notes** `docs/RELEASE.md`: v1.0.0 capability list, version timeline, the simulation /
-  safety boundary, the verified gates, and the exact (NOT executed) remote-push command template
-  pending GitHub authorisation.
+  journey and prints key facts plus the drill summary; its header marks it a simulated,
+  defense-only demo.
+- **Traceable design→implementation matrix** `docs/IMPLEMENTATION.md` and **release notes**
+  `docs/RELEASE.md`, covering the six technical paths, five enforcement capabilities, every level
+  L0–L5, the four principles, the three hard problems and the four audit elements, with each row
+  marked as a *real in-memory implementation* or an *interface/simulation* (GRAM / TLM / hardware
+  binding / MicroVM / snapshot custody).
+
+### Added — real deployable binary, release engineering and quality
+- **Deployable binary with link-time version injection** (`Makefile`, `cmd/aiprison/main.go`):
+  `make build` produces a stripped `-trimpath bin/aiprison` (`bin/aiprison.exe` when
+  `GOOS=windows`) injecting `-X main.version/commit/buildTime` (`VERSION` defaults to `1.0.0`,
+  `COMMIT` from `git rev-parse --short HEAD`, UTC `BUILD_TIME`). The CLI metadata is now plain
+  package variables (`var version/commit/buildTime`); `aiprison version [-v|--verbose]` prints the
+  version and the injected commit/build time. `make build-examples` builds the example to
+  `bin/examples-basic` (never a stray root `basic`); `make clean` removes `bin/`, `dist/` and
+  coverage files.
+- **Cross-process smoke script on the real binary** (`scripts/smoke.sh`, `make smoke`): data dirs
+  are `mktemp -d` removed by an EXIT trap (zero residue, re-runnable); it runs `demo --data-dir D1`
+  in one process then re-opens the SAME binary with `inspect`/`verify` in fresh processes
+  (asserting `CHAIN VERIFY: OK` and `INTEGRITY OK`), runs `drill --data-dir D2` → `verify`, asserts
+  no leftover `.seg-*.tmp`, and that `help` exits 0 while an unknown command exits non-zero.
+- **Release engineering** (`.github/workflows/`, `scripts/`, `npm/`):
+  - `ci.yml` — on push/PR to main: gofmt gate, `go vet`, `go build`, `go test -race`, coverage
+    summary + artifact upload; `compat.yml` — native matrix (Go 1.23/1.24/1.25 ×
+    ubuntu/macos/windows) plus a cross-compile matrix (linux/darwin/windows × amd64/arm64);
+    `release.yml` — on `v*` tag, builds the six `aiprison_<os>_<arch>.tar.gz/.zip` artifacts and
+    `checksums.txt` and creates the GitHub Release with the official `GITHUB_TOKEN`.
+  - `scripts/build-release.sh` cross-compiles and packages the six targets (LICENSE + README
+    included) plus `checksums.txt`; `scripts/release_check.sh` (`make release-check`) is an
+    allow-list gate verifying required files, version consistency across CLI/CHANGELOG/npm/tag,
+    `gofmt`/`go build`/`go mod tidy` cleanliness, absence of hardcoded secrets, and that the
+    simulation annotations are still present.
+  - **npm package `@twinsearth/aiprison@1.0.0`** (`npm/`): a `postinstall` downloads the matching
+    platform binary from the GitHub Release (sha256-verified against `checksums.txt`) and degrades
+    to a clear offline message when the asset is unreachable; the `aiprison` shim forwards stdio,
+    arguments and exit code.
+- **Zero-residue leak tests self-implemented with the standard library** (`test/leak_test.go`, no
+  third-party dependency): `runtime.NumGoroutine()` baselined before/after a full FileStore-backed
+  System lifecycle (open → both scenarios → Close → reopen/replay → Close, twice) plus repeated
+  open/append/Sync/Close cycles asserting clean reopen, correct counts and no leftover temp files.
+- **Static analysis clean** (`docs/reports/staticcheck-1.0.0.txt`): staticcheck 2026.2.2 — both
+  `staticcheck ./...` and `staticcheck -checks all ./...` report 0 findings after fixing the initial
+  4 U1000/SA1012 findings (dead `ReceiptBook.pendingCount`, unused `migration.custodianShare`, nil
+  context in a test, unused test helper field) and 3 comment/receiver-name style findings.
+- **Coverage** (`docs/reports/coverage-1.0.0.txt`): total **~72%** (up from 66.0%); per-package
+  self coverage audit 89.0%, isolation 89.5%, revocation 84.3%, migration 80.5%, resource 78.5%,
+  governance 78.4%, domain 78.3%, identity 77.0%, prison **76.0% (was 55.3%)**, store **75.2% (was
+  69.1%)**, capability 71.1% — via new assertion-bearing tests (`internal/prison/drill_test.go`,
+  `internal/store/coverage_test.go`).
+- **Manual review with regression tests** (`docs/reports/review-findings-1.0.0.md`; P0=0, P1=1,
+  P2=1, P3=8, all fixed except one documented item):
+  - P1 — `resource.Engine.Deprive` no longer nil-panics when `Snapshots` is unset (returns a clear
+    configuration error; regression `TestDepriveNilSnapshotStoreReturnsError`).
+  - P2 — `FileStore`/`MemoryStore` `Append`/`Sync` honor `ctx.Err()` (a cancelled context aborts
+    before any mutation; regression `TestAppendSyncHonorsCancelledContext`).
+  - Verified across all packages: no data races (`-race -count=2` green), segment filenames derive
+    only from the global seq (no kind/payload path injection), hash inputs are deterministic (UTC
+    RFC3339Nano, sorted keys), and comments mark GRAM/TLM/hardware/MicroVM/custody as simulated.
+- **Real benchmarks** (`docs/reports/benchmark-1.0.0.txt`, `-benchmem`, Apple M4 / go1.27.3):
+  revocation lookup ~6.6–7.4 ns/op with 0 allocs over a 100k-entry set; `audit.Chain.Append`
+  ~1.1 us/op; full-chain Verify scales linearly (1k=0.78 ms, 10k=8.0 ms, 100k=78 ms); FileStore
+  append with fsync-per-record 8.2 ms/op vs batched 33.5 us/op (~244×); governance case-to-verdict
+  ~2.3 us; resource 5-step deprivation ~2.6 us; `RunScenarioA` 69.8 us in-memory vs 9.81 ms on
+  FileStore. The binary is ~3.2 MB, starts in ~2.7 ms, and `demo`/`drill` run in ~11 ms with <8 MiB
+  peak RSS. No correctness-changing optimization was needed: hot paths are O(1) and fsync-batched
+  by design; the O(n) full-chain verify is the tamper-evidence contract.
 
 ### Changed
-- `cmd/aiprison`: version bumped to `1.0.0`; new `drill` subcommand; usage text updated.
-- `README.md`: status/version updated to v1.0.0; Quickstart documents `aiprison drill` and links
-  `docs/IMPLEMENTATION.md` and `docs/RELEASE.md`.
-- `docs/ROADMAP.md`: v0.1 → v1.0.0 milestones marked as completed.
+- `cmd/aiprison`: version is `1.0.0`; adds `drill`, `inspect`, `verify`, `repair-tail` and global
+  `--data-dir`; version metadata moved from a const to ldflags-injectable variables.
+- `go.mod`: compatibility floor lowered to `1.23` (a full import/feature audit found nothing newer
+  than the `min`/`max` builtins — no `slices`/`maps`/`cmp`, no `errors.Join`, no enhanced
+  `http.ServeMux`, no range-over-func); no `require`/`toolchain` directives.
+- `README.md`: status/version updated to v1.0.0; Quickstart documents `drill` and links
+  `docs/IMPLEMENTATION.md` and `docs/RELEASE.md`. `docs/ROADMAP.md`: v0.1 → v1.0.0 milestones marked
+  completed.
+- Added `docs/QUALITY-REPORT.md` (per-version development progress / quality / measured performance)
+  and the raw evidence under `docs/reports/`.
 
 ### Safety / simulation boundary (unchanged, reaffirmed)
-- Everything remains an in-memory simulation. No real isolation, revocation distribution,
-  hardware binding, GRAM/TLM reload or token stack. New recovery code is annotated `simulated`.
+- The new durability is **real for the governance/audit record only**. The execution backends
+  remain in-memory simulations that do NOT resume across restarts: sandbox isolation, cgroup/quotas,
+  real revocation distribution, hardware binding, GRAM/TLM and token stacks are not real — the
+  ledger records what those simulated components decided so the next process can prove and
+  re-enforce it. All new recovery/execution code is annotated `simulated`.
 - Strictly defensive: isolation, auditability, human accountability. No escape, attack,
   weaponization or dangerous-knowledge step exists anywhere in the repo.
 
