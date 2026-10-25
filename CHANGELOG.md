@@ -6,6 +6,46 @@ project follows [semver](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0]
+
+### Added
+- `internal/enforcement/resource`: the resource-deprivation layer (资源剥夺层).
+  - `Quota` as a *revocable* resource credential (CPU millis / memory / storage
+    / network / frozen pages), not a static config, and a `Backend` interface
+    (`Allocate` / `Current` / `StopAllocation` / `PlanReclaim` / `ReclaimStep` /
+    `FreezeMemoryPages` / `CutNetwork`) with the in-memory `InMemoryBackend`.
+    `Allocate` consults the global revocation set FIRST — revoked-but-not-expired
+    credentials are rejected — and post-deprivation `StopAllocation` blocks new
+    work. `ReclaimStep` walks the CPU quota down through fixed rungs (default 4:
+    1000→750→500→250→0), then freezes pages and cuts the network: never an
+    instant zero, idempotent after the quota hits zero.
+  - `Engine.Deprive` orchestrates the design's five-step sequence in the
+    assertionable order: write revocation → stop new allocation → seal the
+    pack_diff snapshot on the LIVE pre-reclaim environment (hash anchored on the
+    chain via `EventSnapshotSealed`) → gradual reclaim rungs + page freeze +
+    network cut → forced per-node receipts. `DepriveReport` exposes the step
+    list, the full CPU rung history, the snapshot and the open acknowledgements;
+    non-acknowledged nodes are judged untrusted by `audit.ReceiptBook` (this
+    package does not reimplement the v0.6 group freeze).
+  - In-memory `MemSnapshotStore` (one evidence snapshot per agent+sentence,
+    idempotent re-run) plus dependency-injection adapters wiring the real
+    `revocation.Set`, `audit.Chain` and `audit.ReceiptBook`.
+- Unit tests: post-revocation allocation rejection; gradual rung history with
+  strict intermediates and exact final zero; snapshot-before-reclaim ordering
+  with chain verification; untrusted-node exposure through the real receipt
+  book; idempotent re-run (single revocation entry, single snapshot, quota not
+  re-walked); concurrent deprive/allocate (-race).
+
+### Changed
+- No wire/contract break: events reuse `domain.Event*` constants, receipts
+  reuse `domain.Receipt` / `audit.OpSnapshotSeal`, and the revocation entry
+  reuses `internal/revocation.Entry`; no schema changes.
+
+### Security
+- In-memory simulation only: no real cgroup/quota control, no real memory
+  freeze or network cut, no real encrypted snapshot custody. Defensive scope
+  unchanged (traceability, verifiability, accountability only).
+
 ## [0.3.0]
 
 ### Added
