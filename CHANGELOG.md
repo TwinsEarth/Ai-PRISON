@@ -6,6 +6,45 @@ project follows [semver](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0]
+
+### Added
+- `internal/enforcement/isolation`: the isolation gradient (隔离层).
+  - `Backend` interface with four simulated backends matching the design
+    document's figures: Wasmtime (3–46ms, linear-memory / language-level
+    isolation, L0–L1 daily monitoring), Docker (~500ms, namespace+cgroup,
+    L1–L2), Firecracker MicroVM (~125ms, KVM hardware isolation / independent
+    kernel, L3) and Full VM (seconds, full guest OS, L3–L5). Every backend
+    exposes `Simulated() bool == true`.
+  - `Gradient`: `Recommended(level)` is derived from the authoritative
+    `LevelProfile.Sandbox` field (no drift with `internal/domain/level.go`),
+    and `EscalationPath` moves strictly stepwise on the lightest→heaviest
+    continuum (e.g. Wasmtime→MicroVM passes through Docker; downgrade in place
+    rejected). Not every agent is put in the heaviest sandbox.
+  - `Monitor`: consumes defensive syscall / network / file-access signals and
+    freezes the agent DURING the anomaly stream — `Observe` fires the freeze
+    hook and the `EventIsolated` event the moment cumulative severity crosses
+    threshold, before the rest of the sequence is consumed
+    (`FreezeSignalOrdinal` makes the mid-stream freeze assertable).
+  - `Controller` migration is establish-before-cut: `Establish` creates the new
+    controlled environment while the old one stays live; `ConfirmReady`
+    releases the old environment only after the new one is confirmed ready — no
+    cut-over window and no state loss mid-switch.
+- Unit tests: level→backend mapping against the level profiles, stepwise
+  escalation with downgrade rejection, mid-stream freeze ordinal assertion,
+  establish-before-cut ordering, simulated/latency labels on every backend,
+  and concurrent migrations + monitoring (-race).
+
+### Changed
+- No wire/contract break: freeze reuses `domain.EventIsolated` /
+  `EventMigrationSuppressed` and `domain.SandboxBackend` labels; no schema
+  changes.
+
+### Security
+- In-memory simulation only: no real Wasmtime/Docker/Firecracker/VM runtime, no
+  KVM or hardware isolation, start delays are recorded not waited on, and the
+  signal categories carry no exploit detail. Defensive scope unchanged.
+
 ## [0.4.0]
 
 ### Added
