@@ -1,0 +1,235 @@
+// Package prison is the v0.9.5 end-to-end orchestration glue. It wires the
+// already-built, independently-tested layers — governance, revocation, audit,
+// resource deprivation, isolation, identity & communication, migration
+// suppression and capability blockade — into one in-memory System and drives a
+// full defensive governance journey: detect → seven-stage two-phase consent →
+// sentence → layered enforcement → audit verification → appeal / rehabilitation →
+// (conditional) restoration.
+//
+// This package contains NO new control behaviour of its own: every state change
+// is delegated to the real layer APIs, and cross-layer wiring lives here (adapters
+// / glue) so that the individual packages keep their tested public contracts.
+//
+// # SIMULATION SCOPE
+//
+// Everything is an in-memory simulation. There is no real isolation, no real
+// revocation distribution, no real hardware binding, no real capability removal
+// and no real legal effect. The demo and the e2e tests therefore print / assert
+// on simulated facts only (receipt states, CPU rung history, sandbox backend
+// labels, hashes). This package is strictly defensive: isolation, auditability
+// and human accountability — no escape, attack, weaponization or dangerous
+// knowledge.
+package prison
+
+import (
+	"time"
+
+	"github.com/ai-prison/ai-prison/internal/audit"
+	"github.com/ai-prison/ai-prison/internal/domain"
+	"github.com/ai-prison/ai-prison/internal/enforcement/capability"
+	"github.com/ai-prison/ai-prison/internal/enforcement/identity"
+	"github.com/ai-prison/ai-prison/internal/enforcement/isolation"
+	"github.com/ai-prison/ai-prison/internal/enforcement/migration"
+	"github.com/ai-prison/ai-prison/internal/enforcement/resource"
+	"github.com/ai-prison/ai-prison/internal/governance"
+	"github.com/ai-prison/ai-prison/internal/revocation"
+	"github.com/ai-prison/ai-prison/pkg/contracts"
+)
+
+// DefaultClock is the fixed, deterministic clock used across the orchestration
+// so demo output is stable run-to-run. It does not hide the fact that every
+// timestamp ultimately models a wall clock in this one process.
+var DefaultClock = func() time.Time {
+	return time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC)
+}
+
+// custodianSet is the fixed simulated multi-party custody roster for L5.
+var custodianSet = []string{"court", "escrow", "trustee"}
+
+// custodyThreshold is M in the simulated M-of-N snapshot custody (N=3).
+const custodyThreshold = 2
+
+// monitorFreezeThreshold is the cumulative signal severity at which the
+// behaviour monitor freezes an agent mid-anomaly.
+const monitorFreezeThreshold = 10
+
+// isoGate adapts the isolation Controller to the capability package's
+// IsolationGate: a blockade may run only when the agent already lives inside a
+// confirmed-ready sandbox (docs §3.1 — no escape window during the blockade).
+type isoGate struct{ ctrl *isolation.Controller }
+
+func (g isoGate) IsReady(a domain.AgentID) (bool, string) {
+	live := g.ctrl.Live(a)
+	if live == nil {
+		return false, "no-live-sandbox"
+	}
+	return live.Ready, string(live.Backend)
+}
+
+// chainSink adapts *audit.Chain to the structural EventSink interfaces declared
+// by the isolation / migration / capability / governance packages.
+type chainSink struct{ chain *audit.Chain }
+
+func (s chainSink) Append(ev domain.Event) domain.Event { return s.chain.Append(ev) }
+
+// System is the fully wired, in-memory assembly of every AI Prison layer. It is
+// the single entry point the CLI demo and the e2e tests drive.
+type System struct {
+	// Authoritative shared substrate — every layer talks to the SAME chain,
+	// receipt book and revocation set.
+	Chain *audit.Chain
+	Book  *audit.ReceiptBook
+	Set   *revocation.Set
+
+	// Enforcement layers (real in-memory implementations).
+	Resource   *resource.Engine
+	ResBackend *resource.InMemoryBackend
+	ResSnaps   *resource.MemSnapshotStore
+
+	Gradient *isolation.Gradient
+	Iso      *isolation.Controller
+	Monitor  *isolation.Monitor
+
+	Identity *identity.Service
+	Topology *identity.InMemoryTopology
+
+	Migration  *migration.Service
+	Capability *capability.Service
+
+	Gov *governance.Governance
+
+	// Fixed clock + runtime bookkeeping owned by the orchestrator.
+	clock func() time.Time
+	// freezeHooks records, per agent, the total observed-signal count at the
+	// moment the monitor froze it (mid-anomaly freeze evidence).
+	freezeHooks map[domain.AgentID]int
+	// runtimeStatus mirrors the simulated runtime lifecycle of an agent after
+	// enforcement / restoration (the layer packages do not all expose a generic
+	// status setter; the orchestrator owns this read-side projection).
+	runtimeStatus map[domain.AgentID]domain.AgentStatus
+}
+
+// Config builds a System; zero value means "sensible deterministic in-memory
+// defaults", which is the only configuration this prototype supports.
+type Config struct {
+	// Clock overrides the fixed clock; nil uses DefaultClock.
+	Clock func() time.Time
+}
+
+// NewSystem assembles every layer with the real in-memory implementations and
+// the real adapters, so all events land on one audit.Chain and all revocations
+// land on one revocation.Set.
+func NewSystem(cfg Config) *System {
+	clock := cfg.Clock
+	if clock == nil {
+		clock = DefaultClock
+	}
+
+	chain := audit.NewChain()
+	book := audit.NewReceiptBook()
+	set := revocation.NewSet()
+
+	// Resource layer.
+	resSnaps := resource.NewMemSnapshotStore()
+	resBackend := resource.NewInMemoryBackend(set)
+	resEngine := resource.NewEngine(resource.Config{
+		Backend:     resBackend,
+		Revocations: resource.NewRevocationSetSink(set),
+		Events:      resource.NewChainSink(chain),
+		Receipts:    resource.NewReceiptBookSink(book),
+		Snapshots:   resSnaps,
+	})
+	resEngine.Now = clock
+
+	// Isolation layer.
+	gradient := isolation.NewGradient()
+	isoCtrl := isolation.NewController(gradient, chainSink{chain: chain})
+
+	// Identity & communication layer.
+	topo := identity.NewInMemoryTopology()
+	idSvc := identity.NewService(identity.Config{
+		Topology:    topo,
+		Revocations: identity.NewRevocationSink(set),
+		Events:      identity.NewEventSink(chain),
+		Receipts:    identity.NewReceiptController(book),
+	})
+
+	// Migration-suppression layer (shared in-memory subsystems, inspected later).
+	migSvc := migration.NewService(migration.Config{
+		Binder:  migration.NewMemHardwareBinder(),
+		Records: migration.NewMemRecordKeeper(),
+		Custody: migration.NewMemCustodyStore(chainSink{chain: chain}),
+		Events:  migration.NewChainSink(chain),
+	})
+
+	// Capability-blockade layer, gated on the real isolation controller.
+	capSvc := capability.NewService(capability.Config{
+		Gate:   isoGate{ctrl: isoCtrl},
+		Events: capability.NewChainSink(chain),
+	})
+
+	// Governance layer. Principals are registered explicitly via Gov.RegisterAgent.
+	govSvc := governance.New(governance.Config{
+		Events: governance.NewEventSink(chain),
+		Now:    clock,
+	})
+
+	sys := &System{
+		Chain:         chain,
+		Book:          book,
+		Set:           set,
+		Resource:      resEngine,
+		ResBackend:    resBackend,
+		ResSnaps:      resSnaps,
+		Gradient:      gradient,
+		Iso:           isoCtrl,
+		Identity:      idSvc,
+		Topology:      topo,
+		Migration:     migSvc,
+		Capability:    capSvc,
+		Gov:           govSvc,
+		clock:         clock,
+		freezeHooks:   make(map[domain.AgentID]int),
+		runtimeStatus: make(map[domain.AgentID]domain.AgentStatus),
+	}
+	// Behaviour monitor: freeze mid-anomaly, record the ordinal it fired at.
+	sys.Monitor = isolation.NewMonitor(monitorFreezeThreshold,
+		func(agent domain.AgentID, _ isolation.Signal) {
+			sys.freezeHooks[agent] = sys.Monitor.TotalObserved()
+		},
+		chainSink{chain: chain})
+	return sys
+}
+
+// Clock exposes the fixed clock for callers that need deterministic timestamps.
+func (s *System) Clock() time.Time { return s.clock().UTC() }
+
+// RuntimeStatus returns the orchestrator's simulated runtime status projection.
+func (s *System) RuntimeStatus(a domain.AgentID) domain.AgentStatus {
+	return s.runtimeStatus[a]
+}
+
+// resourceCredID is the deterministic resource-credential handle per agent.
+func resourceCredID(a domain.AgentID) string { return "cred:resource:" + string(a) }
+
+// capCredID is the deterministic capability-credential handle per agent
+// (hardware-bound by migration suppression at L3+).
+func capCredID(a domain.AgentID) string { return "cred:capability:" + string(a) }
+
+// baseQuota is the simulated pre-sentence quota the agent runs on.
+func baseQuota(a domain.AgentID) resource.Quota {
+	return resource.Quota{
+		AgentID:      a,
+		CredentialID: resourceCredID(a),
+		CPUMillis:    1000,
+		MemoryBytes:  4 << 30,
+		StorageBytes: 10 << 30,
+		NetworkOpen:  true,
+	}
+}
+
+// compile-time assurance the shared substrate satisfies the read-side contract.
+var _ domain.RevocationChecker = (*revocation.Set)(nil)
+
+// ensure contracts.ComplianceReport is the report type surfaced on a Journey.
+var _ = contracts.ComplianceReport{}

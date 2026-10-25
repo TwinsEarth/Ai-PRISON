@@ -6,6 +6,50 @@ project follows [semver](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.5]
+
+### Added
+- `internal/prison`: the end-to-end orchestration layer that wires every already-built
+  package into one in-memory `System`. A single constructor assembles the shared substrate
+  (one `revocation.Set`, one `audit.Chain`, one `audit.ReceiptBook`) and injects each layer's
+  real in-memory implementation through that layer's own adapters, so all events land on the
+  same judgement chain and all revocations on the same revocation set. High-level methods drive
+  a full journey — `DetectAndSentence` (seven-stage pipeline + two-phase consent → enforcing
+  sentence), `Enforce` (identity/communication → resource five-step deprivation →
+  establish-before-cut isolation → migration suppression → L4-only capability blockade),
+  `Appeal` / `Rehabilitate` (conditional restoration) and `Finalize` (chain verify + per-hop
+  vs end-to-end compliance report). A structured `Journey` trace collects every key fact
+  (level, revocation entries, CPU rung history, sandbox backend, untrusted / collateral-frozen
+  agents, snapshot hash, post-block hash, custody, reputation, restoration order, chain
+  verify) for the CLI to print and tests to assert on. A fixed clock and deterministic IDs keep
+  runs stable.
+- `cmd/aiprison demo` now runs two scenarios and prints a segmented Chinese trace:
+  - **Scenario A (L3, recoverable)**: `sandbox_escape_attempt` — one holding node deliberately
+    never acknowledges the channel cut, is judged untrusted, and freezes an innocent co-located
+    agent (连带冻结); CPU walks 1000→750→500→250→0 (non-instant zero) with the pre-reclaim
+    snapshot sealed and chained; escalation to the Firecracker MicroVM; the behaviour monitor
+    freezes mid-anomaly; the principal's L3 appeal suspends enforcement and is upheld, issuing a
+    restoration order (state restored).
+  - **Scenario B (L5, non-recoverable)**: `major_harm_no_correction` — DID/AgentCard voided,
+    reputation zeroed, portable-record anchor key revoked (record non-portable), snapshot sealed
+    under simulated M-of-N multi-party custody; the procedural appeal is accepted but does NOT
+    suspend and issues NO restoration order — the identity is never unsealed.
+  Both scenarios end with `audit.Chain.Verify() = OK`, the per-hop/end-to-end compliance report,
+  and an explicit "全程为内存模拟" notice. `version`/`levels` are unchanged; version is now 0.9.5.
+- `test/`: cross-package e2e integration suite running both scenarios against the real assembled
+  `System` and asserting: both chains verify; scenario A has an un-acked untrusted node with an
+  innocent collateral freeze, a multi-rung (non-instant-zero) CPU walk with the snapshot chained
+  before reclaim, and a produced restoration order; scenario B has `Card.Revoked=true`, zeroed
+  reputation, a non-portable record, NO restoration order, and a final status equal to
+  `domain.StatusForLevel(L5)`. Runs clean under `-race`.
+
+### Notes
+- Pure Go, standard-library only; `go.mod` unchanged. No existing layer's public behaviour was
+  modified — all cross-layer wiring lives inside `internal/prison`. Everything remains an
+  in-memory simulation: there is no real isolation, revocation distribution, hardware binding,
+  capability removal or legal effect. This release is strictly defensive (isolation / audit /
+  accountability) and contains no escape, attack, weaponization or dangerous-knowledge content.
+
 ## [0.9.0]
 
 ### Added

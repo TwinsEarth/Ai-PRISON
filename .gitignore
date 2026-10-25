@@ -1,7 +1,7 @@
 # Binaries
 /bin/
 /dist/
-aiprison
+/aiprison
 *.exe
 *.test
 *.out
