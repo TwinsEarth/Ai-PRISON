@@ -6,6 +6,64 @@ project follows [semver](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.0]
+
+v1.0.0 is the first stable, fully-local release: it turns docs/06's recovery-drill runbook
+into a runnable matrix, ships a buildable example, adds a traceable design→implementation
+matrix and release notes, and closes the docs/schema/code consistency loop. Pure Go,
+standard library only — `go.mod` is unchanged and still has zero third-party dependencies.
+
+### Added
+- **Runnable recovery drills** (`internal/prison/drill.go`, `cmd/aiprison drill`,
+  `test/recovery_drill_test.go`). `aiprison drill` walks the docs/06 matrix level by level on
+  dedicated drill agents and prints a structured PASS/FAIL report:
+  - **L2 (credential freeze)**: an upheld appeal issues a restoration order, runtime returns to
+    `active`, all node receipts acked.
+  - **L3 (isolation)**: a supervised-behaviour rehabilitation that passes issues a restoration
+    order and restores the runtime.
+  - **L4 (capability removal)**: exercises all three reversal paths — GRAM module re-attach from
+    the retained backup, privileged control-token re-issue, and TLM private-layer re-provision.
+    It FIRST proves a recovery without recertification is **refused** (`RequiresRecertification`
+    gate), then succeeds with a joint model-provider + safety-org sign-off and mints a new
+    post-restore compute-graph hash.
+  - **L5 (identity revocation)**: does NOT attempt to unseal; it only verifies the
+    *non-recoverable* property — even an upheld procedural appeal issues no restoration order,
+    the AgentCard stays void, revoked credentials stay in the revocation set, the record stays
+    non-portable and reputation stays zero.
+  - A closing row verifies the shared judgement hash chain over every drill event. Any single
+    failing assertion FAILS the whole drill (exit 1).
+- **Capability recovery entry points** (`internal/enforcement/capability/`, fully backward
+  compatible, additive):
+  - `TLModel.RestorePrivateLayer` — reverse of `Downgrade`, mints a new compute-graph hash.
+  - `TokenGate.Reissue` — re-authorizes a fresh control token only when a prior (revoked)
+    record exists; refuses a first-time grant.
+  - `Service.Recover(RecoverInput)` — orchestrates reversal inside the mandatory ready-sandbox
+    gate and enforces the L4 recertification gate, appending an `agent.restored` event.
+- **Buildable example** `examples/basic/main.go`: wires the in-memory `System`, runs the L3
+  journey and prints key facts plus the drill summary. `go build ./examples/...` passes; the
+  file header marks it as a simulated, defense-only demo.
+- **Traceable implementation matrix** `docs/IMPLEMENTATION.md`: a design-requirement →
+  implementation table covering the six technical paths, the five enforcement capabilities,
+  every level L0–L5, the four principles, the three hard problems, the four audit elements and
+  the governance lifecycle — each row gives the Go package/file, key type/function, the version
+  it landed in, and whether it is a *real in-memory implementation* or an *interface/simulation*
+  (GRAM / TLM / hardware binding / MicroVM / snapshot custody).
+- **Release notes** `docs/RELEASE.md`: v1.0.0 capability list, version timeline, the simulation /
+  safety boundary, the verified gates, and the exact (NOT executed) remote-push command template
+  pending GitHub authorisation.
+
+### Changed
+- `cmd/aiprison`: version bumped to `1.0.0`; new `drill` subcommand; usage text updated.
+- `README.md`: status/version updated to v1.0.0; Quickstart documents `aiprison drill` and links
+  `docs/IMPLEMENTATION.md` and `docs/RELEASE.md`.
+- `docs/ROADMAP.md`: v0.1 → v1.0.0 milestones marked as completed.
+
+### Safety / simulation boundary (unchanged, reaffirmed)
+- Everything remains an in-memory simulation. No real isolation, revocation distribution,
+  hardware binding, GRAM/TLM reload or token stack. New recovery code is annotated `simulated`.
+- Strictly defensive: isolation, auditability, human accountability. No escape, attack,
+  weaponization or dangerous-knowledge step exists anywhere in the repo.
+
 ## [0.9.5]
 
 ### Added

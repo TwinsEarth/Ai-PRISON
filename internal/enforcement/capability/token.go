@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"fmt"
 	"strconv"
 	"sync"
 
@@ -68,6 +69,27 @@ func (g *TokenGate) Revoke(agentID domain.AgentID) {
 		return
 	}
 	t.revoked = true
+}
+
+// Reissue is the simulated recovery counterpart of Revoke (docs/06 L4 drill
+// path ④): it re-authorizes and mints a FRESH privileged control token to an
+// agent whose token was revoked. Unlike Issue, it REFUSES when the agent has
+// no prior token record — recovery may only re-issue for a previously-held
+// (now revoked) token, never silently invent a first-time grant. The old
+// revoked token id is superseded by the new one.
+//
+// Simulated: the "token" is still a map flag; there is no real privileged
+// control token or gating stack.
+func (g *TokenGate) Reissue(agentID domain.AgentID) (string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if _, ok := g.token[agentID]; !ok {
+		return "", fmt.Errorf("capability: cannot reissue a control token to %s — no prior token record (recovery must follow a real revocation)", agentID)
+	}
+	g.seq++
+	id := "ctrl-token-" + string(agentID) + "-" + strconv.Itoa(g.seq)
+	g.token[agentID] = &privControlToken{tokenID: id, revoked: false}
+	return id, nil
 }
 
 // HoldsToken reports whether the agent currently holds a live (non-revoked)

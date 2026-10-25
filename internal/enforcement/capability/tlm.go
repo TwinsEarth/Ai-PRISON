@@ -76,6 +76,33 @@ func (m *TLModel) Downgrade(agentID domain.AgentID) (string, error) {
 	return st.graphHash, nil
 }
 
+// RestorePrivateLayer is the simulated recovery counterpart of Downgrade
+// (docs/06 L4 drill path ④): after a recertified recovery it moves the agent
+// back to the full private tier, re-enables the private capability layer and
+// mints a NEW compute-graph hash (epoch++), so the restore is itself an
+// auditable state change. It is an error to restore an agent that was never
+// provisioned; restoring an already-private model is idempotent and returns
+// the current hash without bumping the epoch.
+//
+// Simulated: there are no real weights / compute graph / tiering — the hash is
+// a SHA-256 over the simulated tier/epoch, exactly like Downgrade.
+func (m *TLModel) RestorePrivateLayer(agentID domain.AgentID) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.models[agentID]
+	if !ok {
+		return "", fmt.Errorf("capability: agent %s not provisioned in TLM", agentID)
+	}
+	if st.tier == TierPrivate && st.privateLayer {
+		return st.graphHash, nil
+	}
+	st.tier = TierPrivate
+	st.privateLayer = true
+	st.hashEpoch++
+	st.graphHash = m.hash(agentID, st)
+	return st.graphHash, nil
+}
+
 // PrivateLayerAvailable reports whether the private capability layer is on.
 func (m *TLModel) PrivateLayerAvailable(agentID domain.AgentID) bool {
 	m.mu.Lock()

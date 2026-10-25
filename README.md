@@ -155,9 +155,18 @@ make check
 # Inspect the L0–L5 matrix
 go run ./cmd/aiprison levels
 
-# End-to-end demo (available in v0.9.5)
+# End-to-end demo (v0.9.5)
 go run ./cmd/aiprison demo
+
+# Recovery drill: walk the docs/06 reversibility matrix (v1.0.0, PASS/FAIL report)
+go run ./cmd/aiprison drill
+
+# Runnable example
+go run ./examples/basic
 ```
+
+Current release: **v1.0.0** (annotated tag `v1.0.0`; fully local, not yet pushed — see
+[docs/RELEASE.md](docs/RELEASE.md)).
 
 ## Roadmap & status
 
@@ -175,7 +184,7 @@ The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md). Summary:
 | **v0.8** | Migration suppression (hardware binding, record keys, multi-party custody) |
 | **v0.9** | Capability blocking (GRAM / Token Inoculation / TLM) |
 | **v0.9.5** | CLI end-to-end demo |
-| **v1.0.0** | Tests, examples, docs, recovery drills, compliance reports |
+| **v1.0.0** | ✅ Recovery drills (`aiprison drill`), runnable example, traceable implementation matrix, release notes, docs/schema/code consistency closed |
 
 > **Frontier-tech status:** GRAM, Token Inoculation, TLM, hardware binding and
 > MicroVM controls are modelled as **interfaces plus in-memory/simulated
@@ -191,6 +200,8 @@ The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md). Summary:
 - [Governance process](docs/04-governance.md)
 - [Threat model](docs/05-threat-model.md)
 - [Recovery drills](docs/06-recovery-drills.md)
+- [Implementation traceability matrix](docs/IMPLEMENTATION.md)
+- [Release notes (v1.0.0)](docs/RELEASE.md)
 - [References](docs/REFERENCES.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Original source design (verbatim, source of truth)](docs/design/ai-prison-source-design.md)

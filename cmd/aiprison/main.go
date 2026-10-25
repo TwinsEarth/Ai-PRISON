@@ -24,6 +24,9 @@ func main() {
 	case "demo":
 		// Runs both end-to-end scenarios on an in-memory System (see demo.go).
 		runDemo()
+	case "drill":
+		// Runs the docs/06 recovery-drill matrix on a fresh System (see drillcmd.go).
+		runDrill()
 	case "help", "-h", "--help":
 		printUsage()
 	default:
@@ -33,7 +36,7 @@ func main() {
 	}
 }
 
-const version = "0.9.5"
+const version = "1.0.0"
 
 func printUsage() {
 	fmt.Println("aiprison — defensive AI-agent governance prototype")
@@ -42,6 +45,7 @@ func printUsage() {
 	fmt.Println("  version   print the version")
 	fmt.Println("  levels    print the L0–L5 grading matrix")
 	fmt.Println("  demo      run the end-to-end demo (v0.9.5)")
+	fmt.Println("  drill     run the v1.0.0 recovery drill (docs/06 matrix, PASS/FAIL report)")
 }
 
 func printLevels() {

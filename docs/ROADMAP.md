@@ -29,7 +29,11 @@ go test -race ./...
 
 ## Milestones
 
-### v0.1 — Foundation & contracts
+> **Status (v1.0.0): ✅ all milestones v0.1 → v1.0.0 are completed and locally tagged.**
+> Each tag listed below exists in this repo; v1.0.0 is the stable release (see
+> [RELEASE.md](RELEASE.md) and [IMPLEMENTATION.md](IMPLEMENTATION.md)).
+
+### v0.1 — Foundation & contracts ✅
 - Repo init, MIT license, Makefile, `.gitignore`, community files.
 - `internal/domain`: Agent, DID, AgentCard, Level (L0–L5), Violation,
   Credential, Sentence, Event, Receipt, Accountability, Reputation.
@@ -100,10 +104,16 @@ go test -race ./...
   disposition → receipts → appeal → rehabilitation/restoration.
 - Runnable `aiprison demo`; integration test under `test/`.
 
-### v1.0.0 — Release hardening
-- Examples, recovery drills, end-to-end compliance reports.
-- Documentation/schema/code consistency pass.
-- Full `make check` green; `v1.0.0` tag and release notes.
+### v1.0.0 — Release hardening ✅
+- Runnable recovery drill `aiprison drill` (docs/06 matrix automated; structured PASS/FAIL)
+  + capability recovery entry points (GRAM re-attach / token re-issue / TLM private-layer
+  re-provision / recertification gate).
+- Runnable example `examples/basic`.
+- Traceable design→implementation matrix `docs/IMPLEMENTATION.md` and release notes
+  `docs/RELEASE.md`; README/ROADMAP updated.
+- Documentation/schema/code consistency pass (enums, grading table, simulation labels).
+- Full release gate green; local annotated tag `v1.0.0` created (not yet pushed — pending
+  GitHub authorization; see RELEASE.md §5).
 
 ## Out of scope for the prototype
 
