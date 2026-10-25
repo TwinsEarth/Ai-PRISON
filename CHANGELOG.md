@@ -4,6 +4,11 @@ All notable changes to AI Prison are documented in this file. The format is
 loosely based on [Keep a Changelog](https://keepachangelog.com/), and the
 project follows [semver](https://semver.org/).
 
+## [1.0.5] - 2026-10-26
+
+### Added
+- 假释评估定位——通过 ETHICS 评估矩阵测试公平性、透明度等，达标才能"出狱"恢复能力。纯文档/版本 patch，无 Go 业务逻辑改动。
+
 ## [1.0.4] - 2026-10-26
 
 ### Added
