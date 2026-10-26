@@ -18,6 +18,7 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![go: 1.27](https://img.shields.io/badge/go-1.27-00ADD8.svg)](https://go.dev)
 [![deps: stdlib-only](https://img.shields.io/badge/deps-stdlib%20only-success.svg)](#design-constraints)
+[![npm](https://img.shields.io/npm/v/@twinsearth/aiprison.svg)](https://www.npmjs.com/package/@twinsearth/aiprison)
 
 **The core judgement:** an AI has no body, so "punishment" cannot land on pain
 — it can only land on *executable capability*. AI Prison does not try to make
