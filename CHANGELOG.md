@@ -4,6 +4,13 @@ All notable changes to AI Prison are documented in this file. The format is
 loosely based on [Keep a Changelog](https://keepachangelog.com/), and the
 project follows [semver](https://semver.org/).
 
+## [1.0.8] - 2026-10-26
+
+### Added
+- README 增加 npm 版本徽章（@twinsearth/aiprison）。
+### Fixed
+- Release workflow：CHANGELOG release notes 抽取改为前缀匹配 `## [x.y.z]`，兼容带日期的 `## [x.y.z] - date` 标题。
+
 ## [1.0.7] - 2026-10-26
 
 ### Fixed

@@ -1,6 +1,6 @@
 {
   "name": "@twinsearth/aiprison",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "AI Prison — defensive AI Agent governance CLI (tamper-evident audit chain, capability deprivation, accountable recovery). GRAM/TLM/hardware/MicroVM backends are simulated.",
   "license": "MIT",
   "keywords": [

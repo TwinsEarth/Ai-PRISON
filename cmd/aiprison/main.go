@@ -54,7 +54,7 @@ func main() {
 //
 // The defaults are what `go run` / `go build` without injection prints.
 var (
-	version   = "1.0.7"
+	version   = "1.0.8"
 	commit    = "unknown"
 	buildTime = "unknown"
 )
