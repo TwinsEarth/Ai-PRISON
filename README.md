@@ -14,6 +14,7 @@
 > - **假释评估**：通过 ETHICS 评估矩阵测试 AI 的公平性、透明度等，通过才能"出狱"。
 > - **刑满释放评估**：是否改造成功，是否需要加速 1–100 万倍。
 
+[![CI](https://github.com/TwinsEarth/ai-prison/actions/workflows/ci.yml/badge.svg)](https://github.com/TwinsEarth/ai-prison/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![go: 1.27](https://img.shields.io/badge/go-1.27-00ADD8.svg)](https://go.dev)
 [![deps: stdlib-only](https://img.shields.io/badge/deps-stdlib%20only-success.svg)](#design-constraints)
