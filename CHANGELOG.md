@@ -4,6 +4,13 @@ All notable changes to AI Prison are documented in this file. The format is
 loosely based on [Keep a Changelog](https://keepachangelog.com/), and the
 project follows [semver](https://semver.org/).
 
+## [1.0.7] - 2026-10-26
+
+### Fixed
+- Windows 兼容性：`internal/store` 在 Windows 上跳过目录 fsync（Windows 对目录句柄 `Sync()` 返回 "Access is denied"；NTFS rename 持久性无需单独目录刷盘）。
+- Windows 兼容性：e2e 跨进程持久化测试在 Windows 上正确使用 `aiprison.exe` 二进制名。
+- 补推 GitHub Actions CI / Compat Matrix / Release workflow；三平台（ubuntu/macos/windows）× Go 1.23/1.24/1.25 全矩阵绿灯。
+
 ## [1.0.6] - 2026-10-26
 
 ### Added
