@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release, e.g. v1.0.0 (fallback manual trigger)'
+        required: true
+        type: string
+
+# Default: nothing. Jobs request the scoped permissions they actually need.
+permissions: {}
+
+jobs:
+  build:
+    name: build release assets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Build all 6 archives + checksums.txt
+        run: bash scripts/build-release.sh "${VERSION}"
+        env:
+          VERSION: ${{ inputs.tag || github.ref_name }}
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+          retention-days: 7
+
+  publish:
+    name: publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+
+      - name: Extract release notes from CHANGELOG
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag || github.ref_name }}"
+          tag_version="${TAG#v}"
+          awk -v t="${tag_version}" '
+            $0 == "## ["t"]" { on=1; next }
+            on && $0 ~ /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > RELEASE_BODY.md
+          if [ ! -s RELEASE_BODY.md ]; then
+            echo "No CHANGELOG section for ${tag_version}; falling back to generic body." >&2
+            printf "Release %s\n\nSee CHANGELOG.md for details.\n" "${GITHUB_REF_NAME}" > RELEASE_BODY.md
+          fi
+          echo "--- RELEASE_BODY.md ---"
+          cat RELEASE_BODY.md
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          generate_release_notes: false
+          body_path: RELEASE_BODY.md
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
