@@ -12,6 +12,7 @@
 > - **行为监控模块**：实时记录 AI 的所有系统调用、网络请求和资源使用情况，生成详细行为日志供分析。
 > - **越狱防御**：动态行为镣铐（运行时监测非法调用）、静态特征扫描（代码审计）、对抗样本防御等多重机制。
 > - **假释评估**：通过 ETHICS 评估矩阵测试 AI 的公平性、透明度等，通过才能"出狱"。
+> - **刑满释放评估**：是否改造成功，是否需要加速 1–100 万倍。
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![go: 1.27](https://img.shields.io/badge/go-1.27-00ADD8.svg)](https://go.dev)

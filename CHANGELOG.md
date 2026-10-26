@@ -4,6 +4,11 @@ All notable changes to AI Prison are documented in this file. The format is
 loosely based on [Keep a Changelog](https://keepachangelog.com/), and the
 project follows [semver](https://semver.org/).
 
+## [1.0.6] - 2026-10-26
+
+### Added
+- 刑满释放评估定位——评估是否改造成功、是否需要加速 1–100 万倍。纯文档/版本 patch，无 Go 业务逻辑改动。
+
 ## [1.0.5] - 2026-10-26
 
 ### Added
