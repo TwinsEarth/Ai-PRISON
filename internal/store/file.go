@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -475,7 +476,13 @@ func RepairTornTail(dir string) (int, string, error) {
 }
 
 // fsyncDir flushes the directory entry (needed for rename durability).
+// On Windows there is no portable directory-flush syscall (opening a directory
+// and Sync'ing it returns "Access is denied"); NTFS rename durability is
+// governed by the filesystem itself, so this is a documented no-op there.
 func fsyncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
 	d, err := os.Open(dir)
 	if err != nil {
 		return err

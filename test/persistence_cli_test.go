@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -35,7 +36,11 @@ func TestMain(m *testing.M) {
 		println("mkdir:", err.Error())
 		os.Exit(1)
 	}
-	e2eBin = filepath.Join(work, "aiprison")
+	binName := "aiprison"
+	if runtime.GOOS == "windows" {
+		binName = "aiprison.exe"
+	}
+	e2eBin = filepath.Join(work, binName)
 	build := exec.Command("go", "build", "-o", e2eBin, "./cmd/aiprison")
 	build.Dir = moduleRoot()
 	if out, err := build.CombinedOutput(); err != nil {
