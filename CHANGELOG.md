@@ -4,6 +4,13 @@ All notable changes to AI Prison are documented in this file. The format is
 loosely based on [Keep a Changelog](https://keepachangelog.com/), and the
 project follows [semver](https://semver.org/).
 
+## [1.0.9] - 2026-10-30
+
+### Fixed
+- 发布管道一致性：确保 `cmd/aiprison/main.go` 版本常量、`npm/package.json` 版本、CHANGELOG 顶部段与 git tag 四处一致（release_check 已强制校验）。
+- 腾讯云研发服务器实机部署：重新同步源码至远端最新基线，排除 macOS AppleDouble 文件（`._*` / `.DS_Store`），部署二进制与源码版本对齐。
+- 服务器实测：linux/amd64 全量门禁（gofmt/vet/-race/coverage/staticcheck）绿、L0–L5 模拟与六类故障注入（硬篡改/截断尾/跨进程/并发写/断电 kill -9/句柄泄漏）全部通过，详见 `docs/SERVER-EXERCISE-REPORT.md`。
+
 ## [1.0.8] - 2026-10-26
 
 ### Added
