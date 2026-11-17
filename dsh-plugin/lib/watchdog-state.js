@@ -1,11 +1,15 @@
 /**
- * Shared in-process state of the AI Prison watchdog. The watchdog loader row
- * writes it; the panel tool and the HTTP route read it. Same package, same Node
- * process, so one module instance is enough (no service plumbing needed).
+ * Shared in-process state of the AI Prison watchdog.
+ *
+ * P0 wrote it in observe mode; P1 keeps the same shape and adds the enforcement
+ * registries (quarantine, pause grace, hot-operation counters, budget table,
+ * baseline, crash plans). Nothing here touches the plugin manager by itself.
  */
 export const watchdogState = {
-  mode: 'observe',
+  mode: 'enforce',
+  enforce: true,
   startedAt: null,
+  runId: null,
   dataDir: null,
   config: {},
   /** Latest metrics sample. */
@@ -14,8 +18,24 @@ export const watchdogState = {
   samples: [],
   thresholds: null,
   waterline: 'ok',
+  strongWarn: false,
+  pausedAt: null,
+  graceUntil: null,
+  frozenAt: null,
   /** target -> { count, estimateMB, lastAt, version, lastApplication } */
   operations: new Map(),
+  /** target -> { reason, level, at, evidence, release: 'restart'|'manual' } */
+  quarantine: new Map(),
+  /** target -> ms timestamp until which operation events are our own doing. */
+  suppressUntil: new Map(),
+  /** name@version -> measured/estimated startup MB (budget probe feeds this in P2). */
+  budgets: {},
+  /** Last clean baseline: { at, runId, bundles: [{name, version, enabled}], files } */
+  baseline: null,
+  /** Crash attribution plans (dry-run): { at, level, target, evidence, applied } */
+  plans: [],
+  /** Escalation counters: crash timestamps (ms) and applied level. */
+  escalation: { crashes: [], level: 'L0' },
   /** Recent incidents (newest last), capped. */
   incidents: [],
   /** Last crash-log scan marker (ms). */
@@ -28,15 +48,27 @@ export const MAX_SAMPLES = 120
 export const MAX_INCIDENTS = 200
 
 export function resetWatchdogState(overrides = {}) {
-  watchdogState.mode = 'observe'
+  watchdogState.mode = 'enforce'
+  watchdogState.enforce = true
   watchdogState.startedAt = null
+  watchdogState.runId = null
   watchdogState.dataDir = null
   watchdogState.config = {}
   watchdogState.latest = null
   watchdogState.samples = []
   watchdogState.thresholds = null
   watchdogState.waterline = 'ok'
+  watchdogState.strongWarn = false
+  watchdogState.pausedAt = null
+  watchdogState.graceUntil = null
+  watchdogState.frozenAt = null
   watchdogState.operations = new Map()
+  watchdogState.quarantine = new Map()
+  watchdogState.suppressUntil = new Map()
+  watchdogState.budgets = {}
+  watchdogState.baseline = null
+  watchdogState.plans = []
+  watchdogState.escalation = { crashes: [], level: 'L0' }
   watchdogState.incidents = []
   watchdogState.lastCrashScan = 0
   watchdogState.degraded = null

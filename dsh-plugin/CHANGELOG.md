@@ -2,6 +2,47 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.3.0] — 2026-11-18
+
+### Added — P1 enforcement (requirements 2, 3, 4 dry-run, 5)
+
+- **Memory waterline enforcement**: warn 3 GB, pause 3.9 GB (needs a panel
+  second confirmation, 10-minute grace), strong warning 4 GB, freeze 5 GB on a
+  6 GB host. Thresholds stay cap-relative on a 4 GB host. Hysteresis keeps a
+  frozen host frozen until the heap drops below the block line minus 300 MB.
+- **Hot-operation jail (requirement 2)**: `plugin-manager/operation` settled
+  records are counted per target (install/remove = 1, enable = 1, disable = 0.5,
+  failed/cancelled ignored, base bundles and the watchdog itself exempt). More
+  than five in one run auto-disables the target through
+  `pluginManager.setBundleEnabled`, quarantines it for the rest of the run and
+  audits every step. Quarantine is released by restart or by the panel
+  "Release" action; the agent-facing `plugin_manager` tool is denied while a
+  target is jailed.
+- **Tool guard**: frozen/paused states deny mutating `plugin_manager` actions
+  with a reason (read-only actions stay allowed; the panel keeps release
+  actions for the Top5 close buttons).
+- **Crash attribution (requirement 3, dry-run)**: new crash logs are parsed for
+  `hostRunId`; the plugin-operation journal is matched by that run id and the
+  last changed plugin is picked (in-flight install/enable first, then the latest
+  settled install, then the latest settled enable). The result is recorded as an
+  L1 plan and an incident; nothing is closed until the user confirms enforcement.
+- **Baseline (requirement 4, dry-run)**: a clean run records its enabled bundle
+  set after 60 s without crashes, waterline trouble or quarantine; escalation
+  counters L1→L2→L3 persist across restarts.
+- **Panel**: new "Enforcement" card shows the freeze banner, pause confirmation,
+  quarantine list with release buttons, the memory Top5 with "close now" buttons
+  and the latest dry-run crash plans.
+- **Tool**: `ai_prison_watchdog_status` now reports enforcement state,
+  quarantine, Top5, plans and escalation.
+
+### Notes
+
+- Automatic disable only uses the plugin manager service; no profile file is
+  edited and no plugin code is loaded or unloaded by the watchdog.
+- Top5 numbers are startup-budget + operation-delta estimates, labelled as such;
+  no heap snapshot is taken near the limit.
+
+## [1.2.1] — 2026-11-18
 ## [1.2.1] — 2026-11-18
 
 ### Fixed

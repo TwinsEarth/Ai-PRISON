@@ -1,0 +1,9 @@
+time: 2026-01-01T00:00:00.000Z
+source: host
+phase: running
+app: @deepseek-ai/dsh-desktop 0.2.2-rc.3
+
+--- error ---
+Error: dsh desktop host exited with 134: boom
+  hostRunId: 'run-x'
+FATAL ERROR: MarkCompactCollector: young object promotion failed Allocation failed - JavaScript heap out of memory

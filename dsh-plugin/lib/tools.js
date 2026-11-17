@@ -164,7 +164,7 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
     register({
       name: 'ai_prison_watchdog_status',
       description:
-        'Read the AI Prison watchdog snapshot (P0 observe mode): host heap usage and limit, derived thresholds, the waterline verdict, per-plugin heap estimates, hot plugin-operation counts and recent incidents (including host crash logs observed at startup). Observe mode never enables or disables a plugin.',
+        'Read the AI Prison watchdog snapshot (P1 enforce mode): heap waterline (warn 3 GB / pause 3.9 GB / freeze 5 GB on a 6 GB host), per-plugin hot-operation counts and heap estimates, the plugin prison with quarantined targets and release state, the memory Top5, dry-run crash escalation plans (L1-L3) and recent incidents. Enforcement auto-closes a plugin after more than five hot operations in one run; the tool itself never changes a plugin.',
       parameters: {},
       output: stringOutput,
       async execute() {
@@ -202,9 +202,22 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
                 opBlock: formatBytes(snapshot.thresholds.opBlock),
               }
             : null,
+          enforce: snapshot.enforce,
+          strongWarn: snapshot.strongWarn,
+          pausedAt: snapshot.pausedAt,
+          graceUntil: snapshot.graceUntil,
+          frozenAt: snapshot.frozenAt,
+          topFive: snapshot.topFive,
+          quarantine: snapshot.quarantine,
+          plans: snapshot.plans,
+          escalation: snapshot.escalation,
+          baselineAt: snapshot.baseline ? snapshot.baseline.at : null,
+          budgets: snapshot.budgets,
           operations: snapshot.operations,
           incidents: snapshot.incidents,
-          note: 'observe 模式：仅观察与记录，不自动关闭任何插件。',
+          note: snapshot.enforce
+            ? 'enforce 模式：热操作 > 5 次自动关闭；3.9GB 暂停需二次确认，5GB 冻结插件操作。'
+            : 'observe 模式：仅观察与记录，不自动关闭任何插件。',
         })
       },
     })

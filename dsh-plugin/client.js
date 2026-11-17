@@ -12,6 +12,7 @@ window.__ModuleLoader__.load({
     const STATUS_URL = 'api/ai-prison/status'
     const RUN_URL = 'api/ai-prison/run'
     const WATCHDOG_URL = 'api/ai-prison/watchdog/status'
+    const WATCHDOG_ACTION_URL = 'api/ai-prison/watchdog/action'
 
     const DICTS = {
       en: {
@@ -284,6 +285,15 @@ window.__ModuleLoader__.load({
       })
     }
 
+
+    function postWatchdogAction(action, target) {
+      return fetch(new URL(WATCHDOG_ACTION_URL, document.baseURI), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ action, target }),
+      }).then((response) => response.json())
+    }
     function waterlineText(level) {
       if (level === 'block') return t('waterline.block')
       if (level === 'pause') return t('waterline.pause')
@@ -394,6 +404,50 @@ window.__ModuleLoader__.load({
               ),
             )
           : null,
+      )
+    }
+
+    function EnforceCard({ watchdog, refresh }) {
+      if (!watchdog || !watchdog.ok) return null
+      const act = (name, target, prompt) => {
+        if (prompt && !window.confirm(prompt)) return
+        postWatchdogAction(name, target).then(() => refresh()).catch(() => refresh())
+      }
+      const frozen = Boolean(watchdog.frozenAt) || watchdog.waterline === 'frost'
+      const paused = Boolean(watchdog.pausedAt) || watchdog.waterline === 'pause'
+      const grace = Number.isFinite(watchdog.graceUntil) && Date.now() < watchdog.graceUntil
+      const quarantine = Array.isArray(watchdog.quarantine) ? watchdog.quarantine : []
+      const topFive = Array.isArray(watchdog.topFive) ? watchdog.topFive : []
+      const plans = Array.isArray(watchdog.plans) ? watchdog.plans.slice(-2).reverse() : []
+      const button = { cursor: 'pointer', padding: '3px 9px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l1, rgba(0,0,0,.18))', background: 'transparent', fontSize: 12 }
+      return h('section', { style: C.card },
+        h('div', { style: C.cardHead }, t('watchdog.enforceTitle'), h('span', { style: { ...C.chip, marginLeft: 8 } }, watchdog.enforce ? t('watchdog.enforceOn') : t('watchdog.observeOnly'))),
+        frozen ? h('p', { style: { color: C.error.color, fontSize: 12.5, margin: '0 0 8px' } }, t('watchdog.freezeHint', { level: watchdog.waterline })) : null,
+        paused && !grace ? h('div', { style: { margin: '0 0 10px' } }, h('button', { style: { ...button, padding: '6px 12px' }, onClick: () => act('confirm-pause') }, t('watchdog.confirmPause'))) : null,
+        h('div', { style: { ...C.key, marginBottom: 4 } }, t('watchdog.quarantine')),
+        quarantine.length === 0
+          ? h('p', { style: { ...C.muted, fontSize: 12, margin: '0 0 10px' } }, t('watchdog.noQuarantine'))
+          : h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 } },
+              quarantine.map((entry) => h('div', { key: entry.target, style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+                h('span', { style: { ...C.mono, fontSize: 12, wordBreak: 'break-all' } }, entry.target + ' · ' + entry.reason + ' · ' + entry.level),
+                h('button', { style: button, onClick: () => act('release', entry.target, '假释 ' + entry.target + ' ？') }, t('watchdog.release')),
+              ))),
+        topFive.length === 0 ? null : h('div', null,
+          h('div', { style: { ...C.key, marginBottom: 4 } }, t('watchdog.topFive', { n: topFive.length })),
+          h('table', { style: C.table },
+            h('tbody', null, topFive.map((row) => h('tr', { key: row.target },
+              h('td', { style: { ...C.td, ...C.mono, fontSize: 11.5, wordBreak: 'break-all' } }, row.target),
+              h('td', { style: C.td }, row.estimateMB + ' MB'),
+              h('td', { style: C.td }, h('button', { style: button, onClick: () => act('close', row.target, '立即关闭 ' + row.target + ' ？') }, t('watchdog.close'))),
+            ))),
+          ),
+        ),
+        plans.length === 0 ? null : h('div', { style: { marginTop: 10 } },
+          h('div', { style: { ...C.key, marginBottom: 4 } }, t('watchdog.plans')),
+          plans.map((plan) => h('div', { key: plan.at, style: { ...C.mono, fontSize: 11.5, wordBreak: 'break-word' } },
+            plan.at + ' · ' + plan.level + ' · ' + (plan.target || 'unattributed') + (plan.inFlight ? ' (in-flight)' : '') + (plan.crash ? ' · ' + (plan.crash.oom ? 'OOM' : 'exit ' + plan.crash.hostExitCode) : ''))),
+        ),
+        watchdog.baseline ? h('p', { style: { ...C.muted, fontSize: 11.5, margin: '10px 0 0' } }, t('watchdog.baseline', { at: watchdog.baseline.at })) : null,
       )
     }
 
@@ -535,24 +589,17 @@ window.__ModuleLoader__.load({
         return () => clearInterval(timer)
       }, [load])
 
-      React.useEffect(() => {
-        let cancelled = false
-        const tick = () => {
-          fetchWatchdog()
-            .then((payload) => {
-              if (!cancelled) setWatchdog(payload)
-            })
-            .catch(() => {
-              if (!cancelled) setWatchdog(null)
-            })
-        }
-        tick()
-        const timer = setInterval(tick, 15000)
-        return () => {
-          cancelled = true
-          clearInterval(timer)
-        }
+      const refreshWatchdog = React.useCallback(() => {
+        fetchWatchdog()
+          .then((payload) => setWatchdog(payload))
+          .catch(() => setWatchdog(null))
       }, [])
+
+      React.useEffect(() => {
+        refreshWatchdog()
+        const timer = setInterval(refreshWatchdog, 15000)
+        return () => clearInterval(timer)
+      }, [refreshWatchdog])
 
       const runAction = React.useCallback(
         (action) => {
@@ -606,6 +653,7 @@ window.__ModuleLoader__.load({
         }),
         h(MemoryCard, { watchdog }),
         h(PrisonCard, { watchdog }),
+        h(EnforceCard, { watchdog, refresh: refreshWatchdog }),
         h(
           'p',
           { style: { ...C.muted, fontSize: 12, margin: '2px 0 0', display: 'flex', gap: 12, flexWrap: 'wrap' } },

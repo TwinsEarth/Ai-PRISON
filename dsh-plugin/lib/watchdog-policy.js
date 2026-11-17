@@ -1,10 +1,20 @@
 /**
- * Pure policy math for the AI Prison watchdog (P0 observe mode).
- * No I/O here: every function takes plain numbers/strings so the panel, the
- * tools and the tests share one definition of the thresholds.
+ * Pure policy math for the AI Prison watchdog (P1).
+ *
+ * Threshold layout (derived from the real heap limit, absolute values clamped):
+ *   warn     3.0 GB   -> yellow waterline
+ *   pause    3.9 GB   -> additive plugin operations need a second confirmation
+ *   opWarn   4.0 GB   -> red warning once the user continued through pause
+ *   block    5.0 GB   -> freeze every plugin operation except the release whitelist
+ * On a 4 GB host the same ratios map down (2.99 / 3.60 / 4.09 / 3.81 GB).
  */
 export const MB = 1024 * 1024
 export const GB = 1024 * MB
+
+export const FREEZE_MARGIN = 0.3 * GB
+export const HOT_OP_LIMIT = 5
+export const ADDITIVE_ACTIONS = new Set(['set_plugin', 'set_bundle', 'install_bundle', 'remove_bundle', 'set_version_exemption'])
+export const READONLY_ACTIONS = new Set(['list_plugins', 'list_bundles', 'list_version_exemptions'])
 
 /** Thresholds derived from the host heap limit (absolute values clamped to the cap). */
 export function thresholdsFor(heapLimitBytes) {
@@ -22,13 +32,21 @@ export function thresholdsFor(heapLimitBytes) {
   }
 }
 
-/** Waterline for the whole host: ok | warn | pause | block. */
-export function classifyWaterline(heapUsed, thresholds) {
+/** Waterline for the whole host, with the active level to keep hysteresis. */
+export function classifyWaterline(heapUsed, thresholds, previous = 'ok') {
   if (!thresholds || !(heapUsed >= 0)) return 'ok'
-  if (heapUsed >= thresholds.totalBlock) return 'block'
-  if (heapUsed >= thresholds.totalPause) return 'pause'
-  if (heapUsed >= thresholds.totalWarn) return 'warn'
+  const above = (value, guard) => heapUsed + guard >= value
+  if (previous === 'frost' && heapUsed + FREEZE_MARGIN >= thresholds.totalBlock) return 'frost'
+  if (heapUsed + FREEZE_MARGIN >= thresholds.totalBlock) return 'frost'
+  if (previous === 'pause' && heapUsed + FREEZE_MARGIN >= thresholds.totalPause) return 'pause'
+  if (heapUsed + FREEZE_MARGIN >= thresholds.totalPause) return 'pause'
+  if (heapUsed + FREEZE_MARGIN >= thresholds.totalWarn) return 'warn'
   return 'ok'
+}
+
+/** True when additive plugin operations must be denied at this waterline. */
+export function operationsDenied(level) {
+  return level === 'pause' || level === 'frost'
 }
 
 /** How much one plugin operation counts toward the per-target hot-operation limit. */
@@ -49,14 +67,63 @@ export function mergeEstimate(previous, next, alpha = 0.5) {
   return Math.round(before * (1 - alpha) + value * alpha)
 }
 
+/**
+ * Tool guard decision for the agent-facing plugin_manager tool.
+ * @returns {{ reason: string, info?: { name: string, code: string } } | undefined}
+ */
+export function decideToolGuard(execution, state) {
+  if (!execution || execution.name !== 'plugin_manager') return undefined
+  const args = execution.arguments && typeof execution.arguments === 'object' ? execution.arguments : {}
+  const action = typeof args.action === 'string' ? args.action : ''
+  if (!action) return undefined
+  const target = typeof args.target === 'string' ? args.target : null
+  const quarantine = target && state.quarantine instanceof Map ? state.quarantine.get(target) : null
+  if (quarantine && action !== 'list_plugins' && action !== 'list_bundles') {
+    return {
+      reason: `插件 ${target} 在 AI 监狱（${quarantine.reason}，级别 ${quarantine.level}）。需要用户在本机面板点击"假释"后才能操作。`,
+      info: { name: 'ai-prison-quarantine', code: 'quarantined' },
+    }
+  }
+  if (READONLY_ACTIONS.has(action)) return undefined
+  if (!ADDITIVE_ACTIONS.has(action)) return undefined
+  const level = state.waterline
+  if (level === 'frost') {
+    return {
+      reason: `堆水位 ${level}（≥${formatBytes(state.thresholds ? state.thresholds.totalBlock : 0)}）已冻结所有插件操作。请先在面板"内存看护"里关闭 Top5 插件释放内存，或重启 DSH。`,
+      info: { name: 'ai-prison-freeze', code: 'memory-frozen' },
+    }
+  }
+  if (level === 'pause') {
+    const grace = Number.isFinite(state.graceUntil) ? state.graceUntil : 0
+    if (!(Date.now() < grace)) {
+      return {
+        reason: `堆水位 ${level}（≥${formatBytes(state.thresholds ? state.thresholds.totalPause : 0)}）已暂停插件操作，需要用户二次确认。请在面板"内存看护"里确认继续，或重启 DSH。`,
+        info: { name: 'ai-prison-pause', code: 'memory-paused' },
+      }
+    }
+  }
+  return undefined
+}
+
+/** A panel/UI-initiated operation may run only for the release whitelist while frozen. */
+export function allowedDuringFreeze(action) {
+  return action === 'list_plugins' || action === 'list_bundles' || action === 'list_version_exemptions'
+}
+
+/** Should this crash attribution candidate be quarantined? */
+export function hotOperationTriggered(count) {
+  return Number(count) > HOT_OP_LIMIT
+}
+
 /** Parse the header block of a DSH desktop host crash log. */
 export function parseCrashLog(text) {
   const source = String(text || '')
-  const header = source.slice(0, 4000)
+  const header = source.slice(0, 6000)
   const time = /^time:\s*(.+)$/m.exec(header)
   const phase = /^phase:\s*(.+)$/m.exec(header)
   const exit = /exited with (\d+)/.exec(source)
   const oom = /heap out of memory|Allocation failed|MarkCompactCollector|Scavenger:/i.test(source)
+  const runId = /hostRunId:\s*'([^']+)'/.exec(source)
   const fatal = /FATAL ERROR/.test(source)
   return {
     valid: Boolean(time || exit || fatal),
@@ -64,10 +131,82 @@ export function parseCrashLog(text) {
     phase: phase ? phase[1].trim() : null,
     hostExitCode: exit ? Number(exit[1]) : null,
     oom,
+    hostRunId: runId ? runId[1] : null,
   }
 }
 
-/** A compact top-N view of the per-target accounting, biggest estimate first. */
+/**
+ * Attribute a crash to the last changed plugin.
+ *
+ * Preference order (per requirement 3, "only close the last installed plugin"):
+ *   1. an installation/enable that was still in flight when the host died;
+ *   2. the latest settled install/update in the same host run;
+ *   3. the latest settled enable in the same host run.
+ * Disable/remove records are never candidates. A run id mismatch or an empty
+ * candidate list means "unknown": the caller records it and does not kill.
+ */
+export function attributeCrash(journalRecords, crash) {
+  const runId = crash && crash.hostRunId
+  const records = Array.isArray(journalRecords) ? journalRecords : []
+  const inRun = records.filter((record) => !runId || record.runId === runId)
+  const positive = (operation) =>
+    operation
+    && (operation.stage === 'install' || (operation.stage === 'enable' && operation.enabled !== false))
+    && operation.target
+  const started = new Map()
+  for (const record of inRun) {
+    const operation = record.operation
+    if (!positive(operation)) continue
+    if (operation.phase === 'started') started.set(operation.id, operation)
+    if (operation.phase === 'settled') started.delete(operation.id)
+  }
+  const inFlight = [...started.values()].sort((a, b) => String(b.time).localeCompare(String(a.time)))[0]
+  const settled = inRun
+    .map((record) => record.operation)
+    .filter((operation) => positive(operation) && operation.phase === 'settled')
+    .sort((a, b) => String(b.time).localeCompare(String(a.time)))
+  const latestInstall = settled.find((operation) => operation.stage === 'install')
+  const latestEnable = settled.find((operation) => operation.stage === 'enable')
+  const candidates = []
+  if (inFlight) candidates.push({ target: inFlight.target, inFlight: true, reason: inFlight.reason, time: inFlight.time, version: inFlight.version || null })
+  for (const operation of [latestInstall, latestEnable]) {
+    if (operation && !candidates.some((candidate) => candidate.target === operation.target)) {
+      candidates.push({ target: operation.target, inFlight: false, reason: operation.reason, time: operation.time, version: operation.version || null })
+    }
+  }
+  return {
+    hostRunId: runId || null,
+    candidates,
+    picked: candidates.length > 0 ? candidates[0] : null,
+    reason: candidates.length === 0 ? 'no candidate in this host run (missing or incomplete operation history)' : 'last changed plugin in the crashed host run',
+  }
+}
+
+/** Difference between current bundle rows and the recorded clean baseline. */
+export function diffBaseline(rows, baseline) {
+  const baselineBundles = baseline && Array.isArray(baseline.bundles) ? baseline.bundles : []
+  const known = new Map(baselineBundles.map((row) => [row.name, String(row.version || '')]))
+  const changed = []
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const version = String(row.version || '')
+    if (!row.enabled) continue
+    const before = known.get(row.name)
+    if (before === undefined) changed.push({ name: row.name, version, kind: 'added' })
+    else if (before !== version) changed.push({ name: row.name, version, before, kind: 'updated' })
+  }
+  const level = escalationLevel(0)
+  return { changed, unknown: !baseline, level }
+}
+
+/** Escalation level from recent crash count (dry-run plans in P1). */
+export function escalationLevel(crashCount) {
+  if (crashCount >= 3) return 'L3'
+  if (crashCount >= 2) return 'L2'
+  if (crashCount >= 1) return 'L1'
+  return 'L0'
+}
+
+/** Top-N view of per-target accounting, biggest estimate first. */
 export function topOperations(operations, limit = 5) {
   const rows = []
   for (const [target, entry] of operations instanceof Map ? operations : Object.entries(operations || {})) {

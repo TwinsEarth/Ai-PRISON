@@ -2,10 +2,16 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import v8 from 'node:v8'
+import crypto from 'node:crypto'
 import { watchdogState, MAX_SAMPLES, MAX_INCIDENTS } from './watchdog-state.js'
 import {
+  attributeCrash,
   classifyWaterline,
+  decideToolGuard,
+  diffBaseline,
+  escalationLevel,
   formatBytes,
+  hotOperationTriggered,
   mergeEstimate,
   operationWeight,
   parseCrashLog,
@@ -15,8 +21,18 @@ import {
 
 const SAMPLE_MS = 5_000
 const FLUSH_MS = 30_000
-const CRASH_HEAD_BYTES = 8 * 1024
-const LEVEL_RANK = { ok: 0, warn: 1, pause: 2, block: 3 }
+const CRASH_HEAD_BYTES = 256 * 1024
+const BASELINE_DELAY_MS = 60_000
+const PAUSE_GRACE_MS = 10 * 60_000
+const CRASH_WINDOW_MS = 10 * 60_000
+const MAX_JOURNAL_RECORDS = 4000
+const EXEMPT_TARGETS = new Set([
+  'dsh-base',
+  'dsh-web-app',
+  '@deepseek-ai/dsh-base',
+  '@deepseek-ai/dsh-web-app',
+  '@twinsearth/ai-prison-dsh-plugin',
+])
 
 function resolveProfileDir() {
   const fromEnv = typeof process.env.DSH_PROFILE_DIR === 'string' && process.env.DSH_PROFILE_DIR.trim()
@@ -28,6 +44,11 @@ function resolveProfileDir() {
 function resolveLogsDir() {
   const roaming = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
   return path.join(roaming, '@deepseek-ai', 'dsh-desktop', 'logs')
+}
+
+function resolveJournalDir() {
+  const roaming = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
+  return path.join(roaming, '@deepseek-ai', 'dsh-desktop', 'plugin-operations')
 }
 
 function readHead(file, bytes) {
@@ -50,16 +71,48 @@ function readHead(file, bytes) {
   }
 }
 
-/** Read-only watchdog runtime. It observes; it never enables or disables plugins. */
+function readJournalRecords(journalDir) {
+  const records = []
+  for (const name of ['operations.jsonl', 'operations.previous.jsonl']) {
+    const file = path.join(journalDir, name)
+    let text = ''
+    try {
+      text = fs.readFileSync(file, 'utf8')
+    } catch {
+      continue
+    }
+    for (const line of text.split('\n').slice(-MAX_JOURNAL_RECORDS)) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      try {
+        records.push(JSON.parse(trimmed))
+      } catch {
+        // ignore partial line
+      }
+    }
+  }
+  return records
+}
+
+/** Read-only watchdog runtime. Enforcement never touches plugin files, only the manager API. */
 export function createWatchdog(ctx, config = {}, logger = {}) {
   const profileDir = resolveProfileDir()
   const dataDir = config.dataDir ? path.resolve(String(config.dataDir)) : path.join(profileDir, '.ai-prison-watchdog')
   const logsDir = config.logsDir ? path.resolve(String(config.logsDir)) : resolveLogsDir()
+  const journalDir = config.journalDir ? path.resolve(String(config.journalDir)) : resolveJournalDir()
   const stateFile = path.join(dataDir, 'state.json')
   const incidentsFile = path.join(dataDir, 'incidents.jsonl')
+  const baselineFile = path.join(dataDir, 'baseline.json')
   const log = {
     info: (...args) => (typeof logger.info === 'function' ? logger.info(...args) : undefined),
     warn: (...args) => (typeof logger.warn === 'function' ? logger.warn(...args) : undefined),
+  }
+  const refs = { manager: null, tools: null }
+  const cleanups = []
+  const effect = (fn, label) => {
+    const disposer = ctx.effect(fn, label)
+    if (typeof disposer === 'function') cleanups.push(disposer)
+    return disposer
   }
 
   try {
@@ -68,52 +121,19 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     watchdogState.degraded = `cannot create ${dataDir}: ${String((error && error.message) || error)}`
   }
 
-  watchdogState.mode = 'observe'
+  watchdogState.mode = config.enforce === false ? 'observe' : 'enforce'
+  watchdogState.enforce = config.enforce !== false
   watchdogState.startedAt = new Date().toISOString()
+  watchdogState.runId = crypto.randomUUID()
   watchdogState.dataDir = dataDir
   watchdogState.config = { sampleMs: SAMPLE_MS, ...config }
   watchdogState.lastCrashScan = 0
-  let lastFlush = 0
-  const cleanups = []
-  const effect = (fn, label) => {
-    const disposer = ctx.effect(fn, label)
-    if (typeof disposer === 'function') cleanups.push(disposer)
-    return disposer
-  }
+  watchdogState.baseline = null
+  for (const plan of watchdogState.plans) plan.applied = false
 
+  let lastFlush = 0
   restoreState()
   readCrashLogs()
-
-  function restoreState() {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
-      watchdogState.lastCrashScan = Number(parsed.lastCrashScan) > 0 ? Number(parsed.lastCrashScan) : 0
-      if (Array.isArray(parsed.incidents)) {
-        watchdogState.incidents = parsed.incidents.slice(-MAX_INCIDENTS)
-      }
-    } catch {
-      // first run or unreadable state: start clean
-    }
-  }
-
-  function appendIncident(incident) {
-    const record = { at: new Date().toISOString(), mode: watchdogState.mode, ...incident }
-    watchdogState.incidents.push(record)
-    if (watchdogState.incidents.length > MAX_INCIDENTS) {
-      watchdogState.incidents = watchdogState.incidents.slice(-MAX_INCIDENTS)
-    }
-    try {
-      fs.appendFileSync(incidentsFile, `${JSON.stringify(record)}\n`)
-      const stat = fs.statSync(incidentsFile)
-      if (stat.size > 1024 * 1024) {
-        const lines = fs.readFileSync(incidentsFile, 'utf8').trim().split('\n').slice(-500)
-        fs.writeFileSync(incidentsFile, `${lines.join('\n')}\n`)
-      }
-    } catch {
-      // auditing is best-effort in observe mode
-    }
-    return record
-  }
 
   function persist(force = false) {
     const now = Date.now()
@@ -123,6 +143,9 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       startedAt: watchdogState.startedAt,
       lastCrashScan: watchdogState.lastCrashScan,
       incidents: watchdogState.incidents.slice(-50),
+      escalation: watchdogState.escalation,
+      baseline: watchdogState.baseline,
+      budgets: watchdogState.budgets,
     }
     try {
       fs.writeFileSync(stateFile, `${JSON.stringify(payload, null, 2)}\n`)
@@ -131,6 +154,37 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     }
   }
 
+  function restoreState() {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
+      watchdogState.lastCrashScan = Number(parsed.lastCrashScan) > 0 ? Number(parsed.lastCrashScan) : 0
+      if (Array.isArray(parsed.incidents)) watchdogState.incidents = parsed.incidents.slice(-MAX_INCIDENTS)
+      if (parsed.escalation && Array.isArray(parsed.escalation.crashes)) watchdogState.escalation = { crashes: parsed.escalation.crashes.slice(-50), level: parsed.escalation.level || 'L0' }
+      if (parsed.baseline && Array.isArray(parsed.baseline.bundles)) watchdogState.baseline = parsed.baseline
+      if (parsed.budgets && typeof parsed.budgets === 'object') watchdogState.budgets = parsed.budgets
+    } catch {
+      // first run or unreadable state: start clean
+    }
+  }
+
+  function appendIncident(incident) {
+    const record = { at: new Date().toISOString(), mode: watchdogState.mode, ...incident }
+    watchdogState.incidents.push(record)
+    if (watchdogState.incidents.length > MAX_INCIDENTS) watchdogState.incidents = watchdogState.incidents.slice(-MAX_INCIDENTS)
+    try {
+      fs.appendFileSync(incidentsFile, `${JSON.stringify(record)}\n`)
+      const stat = fs.statSync(incidentsFile)
+      if (stat.size > 1024 * 1024) {
+        const lines = fs.readFileSync(incidentsFile, 'utf8').trim().split('\n').slice(-500)
+        fs.writeFileSync(incidentsFile, `${lines.join('\n')}\n`)
+      }
+    } catch {
+      // auditing is best-effort
+    }
+    return record
+  }
+
+  // ---- memory waterline ----------------------------------------------------
   function sample() {
     let heap
     try {
@@ -140,10 +194,11 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     }
     const usage = process.memoryUsage()
     const heapLimit = Number(heap.heap_size_limit) > 0 ? Number(heap.heap_size_limit) : 4 * 1024 * 1024 * 1024
-    watchdogState.thresholds = thresholdsFor(heapLimit)
+    const thresholds = thresholdsFor(heapLimit)
+    watchdogState.thresholds = thresholds
     const heapUsed = Number(usage.heapUsed) > 0 ? Number(usage.heapUsed) : Number(heap.used_heap_size) || 0
-    const waterline = classifyWaterline(heapUsed, watchdogState.thresholds)
     const previous = watchdogState.waterline
+    const waterline = classifyWaterline(heapUsed, thresholds, previous)
     const record = {
       t: new Date().toISOString(),
       heapUsed,
@@ -155,81 +210,179 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     }
     watchdogState.latest = record
     watchdogState.waterline = waterline
+    watchdogState.strongWarn = waterline !== 'ok' && heapUsed >= thresholds.opWarn
     watchdogState.samples.push(record)
-    if (watchdogState.samples.length > MAX_SAMPLES) {
-      watchdogState.samples = watchdogState.samples.slice(-MAX_SAMPLES)
-    }
-    if (waterline !== previous && LEVEL_RANK[waterline] > LEVEL_RANK[previous]) {
+    if (watchdogState.samples.length > MAX_SAMPLES) watchdogState.samples = watchdogState.samples.slice(-MAX_SAMPLES)
+
+    if (waterline === 'frost' && !watchdogState.frozenAt) {
+      watchdogState.frozenAt = record.t
       const incident = appendIncident({
-        kind: 'waterline',
-        level: waterline,
+        kind: 'freeze',
+        level: 'frost',
         heapUsed,
         heapLimit,
-        detail: `heap ${formatBytes(heapUsed)} / limit ${formatBytes(heapLimit)}`,
+        detail: `heap ${formatBytes(heapUsed)} ≥ block ${formatBytes(thresholds.totalBlock)}：冻结插件操作`,
       })
-      log.warn(`[ai-prison-watchdog] waterline ${waterline}: ${incident.detail}（observe 模式，不关闭插件）`)
+      log.warn(`[ai-prison-watchdog] ${incident.detail}`)
       persist(true)
+    } else if (waterline === 'pause' && !watchdogState.pausedAt) {
+      watchdogState.pausedAt = record.t
+      appendIncident({
+        kind: 'pause',
+        level: 'pause',
+        heapUsed,
+        heapLimit,
+        detail: `heap ${formatBytes(heapUsed)} ≥ pause ${formatBytes(thresholds.totalPause)}：插件操作需二次确认`,
+      })
+      persist(true)
+    } else if (waterline === 'warn' && previous !== 'warn' && previous === 'ok') {
+      appendIncident({ kind: 'waterline', level: 'warn', heapUsed, heapLimit, detail: `heap ${formatBytes(heapUsed)} ≥ warn ${formatBytes(thresholds.totalWarn)}` })
+    }
+    if (waterline === 'ok') {
+      watchdogState.pausedAt = null
+      watchdogState.frozenAt = null
+      watchdogState.graceUntil = null
+    }
+    if (waterline === 'warn') {
+      watchdogState.frozenAt = null
+      watchdogState.graceUntil = null
+    }
+    if (watchdogState.strongWarn && waterline === 'pause') {
+      appendIncident({ kind: 'strong-warn', level: 'pause', heapUsed, heapLimit, detail: `heap ${formatBytes(heapUsed)} ≥ 强警告 ${formatBytes(thresholds.opWarn)}` })
+    }
+    maybeWriteBaseline()
+  }
+
+  // ---- clean baseline (requirement 4, dry-run in P1) ----------------------
+  function maybeWriteBaseline() {
+    if (watchdogState.baseline && watchdogState.baseline.runId === watchdogState.runId) return
+    if (!watchdogState.startedAt) return
+    const age = Date.now() - Date.parse(watchdogState.startedAt)
+    if (age < BASELINE_DELAY_MS) return
+    if (watchdogState.waterline === 'pause' || watchdogState.waterline === 'frost') return
+    if (watchdogState.quarantine.size > 0) return
+    const recentCrash = watchdogState.incidents.some((incident) => incident.kind === 'crash' && Date.parse(incident.at || 0) >= Date.parse(watchdogState.startedAt))
+    if (recentCrash) return
+    void collectBaseline()
+  }
+
+  async function collectBaseline() {
+    const manager = refs.manager
+    if (!manager || typeof manager.listBundles !== 'function') return
+    try {
+      const rows = await manager.listBundles()
+      const bundles = rows
+        .filter((row) => row.enabled)
+        .map((row) => ({ name: row.name, version: String(row.version || ''), enabled: true }))
+      watchdogState.baseline = {
+        at: new Date().toISOString(),
+        runId: watchdogState.runId,
+        hostRunId: watchdogState.hostRunId || null,
+        bundles,
+      }
+      try {
+        fs.writeFileSync(baselineFile, `${JSON.stringify(watchdogState.baseline, null, 2)}\n`)
+      } catch {
+        // ignore
+      }
+      appendIncident({ kind: 'baseline', detail: `记录干净基线：${bundles.length} 个 bundle` })
+      persist(true)
+    } catch (error) {
+      watchdogState.degraded = `baseline: ${String((error && error.message) || error)}`
     }
   }
 
-  /** target -> { heapBefore } for operations currently in flight. */
+  // ---- plugin operation accounting / hot-op jail (requirement 2) ----------
   const inflight = new Map()
 
   function onOperation(operation) {
     try {
       if (!operation || typeof operation !== 'object') return
       const target = typeof operation.target === 'string' && operation.target ? operation.target : null
-      if (!target || operation.reason === 'remove') {
-        if (operation.phase === 'settled' && target) {
-          watchdogState.operations.delete(target)
-        }
-        return
-      }
-      const entry = watchdogState.operations.get(target) || {
-        count: 0,
-        estimateMB: 0,
-        lastAt: null,
-        version: operation.version || null,
-        lastApplication: null,
-      }
+      if (!target) return
+      if ((watchdogState.suppressUntil.get(target) || 0) > Date.now()) return
+      const entry = watchdogState.operations.get(target) || { count: 0, estimateMB: 0, lastAt: null, version: operation.version || null, lastApplication: null }
       if (operation.phase === 'started') {
         inflight.set(operation.id, { target, heapBefore: watchdogState.latest ? watchdogState.latest.heapUsed : 0 })
         entry.lastAt = operation.time || entry.lastAt
         watchdogState.operations.set(target, entry)
         return
       }
-      if (operation.phase === 'settled') {
-        const weight = operationWeight(operation)
-        if (weight > 0 && operation.application !== 'failed') {
-          entry.count = Math.round((Number(entry.count) + weight) * 10) / 10
-        }
-        const before = inflight.get(operation.id)
-        inflight.delete(operation.id)
-        if (before && watchdogState.latest && before.heapBefore > 0) {
-          const deltaMB = Math.max(0, Math.round((watchdogState.latest.heapUsed - before.heapBefore) / (1024 * 1024)))
-          entry.estimateMB = mergeEstimate(entry.estimateMB, deltaMB)
-        }
-        entry.lastAt = operation.time || entry.lastAt
-        entry.version = operation.version || entry.version
-        entry.lastApplication = operation.application || null
-        watchdogState.operations.set(target, entry)
-        const thresholds = watchdogState.thresholds
-        if (thresholds && entry.estimateMB >= Math.round(thresholds.singleWarn / (1024 * 1024))) {
-          appendIncident({
-            kind: 'plugin-estimate',
-            target,
-            estimateMB: entry.estimateMB,
-            level: entry.estimateMB >= Math.round(thresholds.singleBlock / (1024 * 1024)) ? 'block' : 'warn',
-            detail: `${target} 估算 ${entry.estimateMB} MB（observe 模式，仅提醒）`,
-          })
-        }
-        persist(true)
+      if (operation.phase !== 'settled') return
+      const weight = operationWeight(operation)
+      if (weight > 0 && operation.application !== 'failed' && operation.application !== 'cancelled') {
+        entry.count = Math.round((Number(entry.count) + weight) * 10) / 10
       }
+      const before = inflight.get(operation.id)
+      inflight.delete(operation.id)
+      if (before && watchdogState.latest && before.heapBefore > 0) {
+        const deltaMB = Math.max(0, Math.round((watchdogState.latest.heapUsed - before.heapBefore) / (1024 * 1024)))
+        entry.estimateMB = mergeEstimate(entry.estimateMB, deltaMB)
+      }
+      entry.lastAt = operation.time || entry.lastAt
+      entry.version = operation.version || entry.version
+      entry.lastApplication = operation.application || null
+      watchdogState.operations.set(target, entry)
+      if (operation.reason === 'remove' && operation.application === 'applied') {
+        watchdogState.operations.delete(target)
+        return
+      }
+      if (watchdogState.enforce && !EXEMPT_TARGETS.has(target) && !watchdogState.quarantine.has(target) && hotOperationTriggered(entry.count)) {
+        watchdogState.quarantine.set(target, {
+          reason: 'hot-ops',
+          level: 'L2',
+          at: new Date().toISOString(),
+          release: 'restart',
+          evidence: `本次运行内热操作计数 ${entry.count} > 5（安装/启用/热切换）`,
+        })
+        appendIncident({ kind: 'quarantine', target, level: 'L2', reason: 'hot-ops', detail: `热操作 ${entry.count} 次 > 5，自动关闭` })
+        persist(true)
+        void disableTarget(target, 'hot-ops')
+      }
+      persist(true)
     } catch (error) {
       watchdogState.degraded = `operation handler: ${String((error && error.message) || error)}`
     }
   }
 
+  async function disableTarget(target, reason) {
+    const manager = refs.manager
+    if (!manager || typeof manager.setBundleEnabled !== 'function') {
+      watchdogState.degraded = `disable ${target}: pluginManager unavailable`
+      return false
+    }
+    watchdogState.suppressUntil.set(target, Date.now() + 8000)
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const rows = typeof manager.listBundles === 'function' ? await manager.listBundles() : []
+        const row = rows.find((entry) => entry.name === target)
+        if (row && row.enabled === false) return true
+        await manager.setBundleEnabled(target, false)
+        appendIncident({ kind: 'close', target, reason, detail: `已自动关闭 ${target}（${reason}）` })
+        return true
+      } catch (error) {
+        if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 500))
+        else {
+          appendIncident({ kind: 'close-failed', target, reason, detail: `自动关闭 ${target} 失败：${String((error && error.message) || error)}` })
+          watchdogState.degraded = `disable ${target}: ${String((error && error.message) || error)}`
+          return false
+        }
+      }
+    }
+    return false
+  }
+
+  function releaseTarget(target) {
+    const entry = watchdogState.quarantine.get(target)
+    if (!entry) return { ok: false, error: 'not quarantined' }
+    watchdogState.quarantine.delete(target)
+    watchdogState.suppressUntil.set(target, Date.now() + 5000)
+    appendIncident({ kind: 'release', target, detail: `用户假释 ${target}（原因 ${entry.reason}）` })
+    persist(true)
+    return { ok: true }
+  }
+
+  // ---- crash attribution and dry-run plans (requirements 3 & 4) -----------
   function readCrashLogs() {
     let entries
     try {
@@ -238,6 +391,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       return
     }
     let newest = watchdogState.lastCrashScan
+    const crashes = []
     for (const entry of entries) {
       if (!entry.isFile() || !/^crash-.*-host\.log$/.test(entry.name)) continue
       const file = path.join(logsDir, entry.name)
@@ -248,18 +402,49 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
         continue
       }
       if (stat.mtimeMs <= watchdogState.lastCrashScan) continue
-      const parsed = parseCrashLog(readHead(file, CRASH_HEAD_BYTES))
+      const text = readHead(file, CRASH_HEAD_BYTES)
+      const parsed = parseCrashLog(text)
       if (!parsed.valid) continue
+      crashes.push({ file: entry.name, mtimeMs: stat.mtimeMs, parsed })
+      if (stat.mtimeMs > newest) newest = stat.mtimeMs
+    }
+    if (crashes.length === 0) return
+    const records = readJournalRecords(journalDir)
+    for (const crash of crashes) {
+      watchdogState.escalation.crashes.push(Date.now())
+      const recent = watchdogState.escalation.crashes.filter((at) => Date.now() - at <= CRASH_WINDOW_MS)
+      watchdogState.escalation.crashes = recent
+      const level = escalationLevel(recent.length)
+      watchdogState.escalation.level = level
+      const attribution = attributeCrash(records, crash.parsed)
+      watchdogState.hostRunId = crash.parsed.hostRunId || null
+      const plan = {
+        at: new Date().toISOString(),
+        level,
+        crash: { file: crash.file, time: crash.parsed.time, phase: crash.parsed.phase, oom: crash.parsed.oom, hostExitCode: crash.parsed.hostExitCode },
+        hostRunId: crash.parsed.hostRunId,
+        target: attribution.picked ? attribution.picked.target : null,
+        inFlight: attribution.picked ? Boolean(attribution.picked.inFlight) : false,
+        evidence: attribution.candidates,
+        reason: attribution.reason,
+        applied: false,
+      }
+      watchdogState.plans.push(plan)
+      if (watchdogState.plans.length > 20) watchdogState.plans = watchdogState.plans.slice(-20)
       appendIncident({
         kind: 'crash',
-        file: entry.name,
-        time: parsed.time,
-        phase: parsed.phase,
-        hostExitCode: parsed.hostExitCode,
-        oom: parsed.oom,
-        detail: parsed.oom ? 'JavaScript heap out of memory' : `host exited with ${parsed.hostExitCode ?? '?'}`,
+        file: crash.file,
+        time: crash.parsed.time,
+        phase: crash.parsed.phase,
+        hostExitCode: crash.parsed.hostExitCode,
+        oom: crash.parsed.oom,
+        level,
+        target: plan.target,
+        inFlight: plan.inFlight,
+        detail: plan.target
+          ? `崩溃归因：${plan.target}${plan.inFlight ? '（崩溃时操作仍在途）' : ''}；${watchdogState.enforce ? 'enforce' : 'dry-run'}`
+          : '崩溃归因失败：本 run 无安装/启用记录，不自动关闭',
       })
-      if (stat.mtimeMs > newest) newest = stat.mtimeMs
     }
     if (newest > watchdogState.lastCrashScan) {
       watchdogState.lastCrashScan = newest
@@ -267,24 +452,56 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     }
   }
 
-  // Sampler (P0: observe only).
+  // ---- registration --------------------------------------------------------
   try {
+    if (typeof ctx.inject === 'function') {
+      ctx.inject(['pluginManager'], (child) => {
+        refs.manager = child.pluginManager || (typeof child.get === 'function' ? child.get('pluginManager') : null)
+      })
+    }
+  } catch (error) {
+    watchdogState.degraded = `pluginManager inject: ${String((error && error.message) || error)}`
+  }
+
+  try {
+    if (typeof ctx.inject === 'function' && watchdogState.enforce) {
+      ctx.inject(['tools'], (child) => {
+        refs.tools = child.tools || null
+        try {
+          if (!child.tools || typeof child.tools.guard !== 'function') return
+          child.effect(
+            () =>
+              child.tools.guard((execution) => {
+                const denial = decideToolGuard(execution, watchdogState)
+                return denial ? { reason: denial.reason, info: denial.info } : undefined
+              }),
+            'ai-prison-watchdog: tool guard',
+          )
+        } catch (error) {
+          watchdogState.degraded = `tool guard: ${String((error && error.message) || error)}`
+        }
+      })
+    }
+  } catch (error) {
+    watchdogState.degraded = `tools inject: ${String((error && error.message) || error)}`
+  }
+
+  try {
+    const interval = Number(config.sampleMs) > 0 ? Number(config.sampleMs) : SAMPLE_MS
     if (typeof ctx.effect === 'function') {
       effect(() => {
         sample()
-        const interval = Number(config.sampleMs) > 0 ? Number(config.sampleMs) : SAMPLE_MS
         const timer = setInterval(sample, interval)
         return () => clearInterval(timer)
       }, 'ai-prison-watchdog: sampler')
     } else {
       sample()
-      setInterval(sample, SAMPLE_MS)
+      setInterval(sample, interval)
     }
   } catch (error) {
     watchdogState.degraded = `sampler: ${String((error && error.message) || error)}`
   }
 
-  // Plugin-operation accounting.
   try {
     if (typeof ctx.on === 'function') {
       if (typeof ctx.effect === 'function') {
@@ -297,7 +514,6 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     watchdogState.degraded = `operations: ${String((error && error.message) || error)}`
   }
 
-  // Read-only HTTP snapshot for the panel.
   try {
     if (typeof ctx.inject === 'function') {
       ctx.inject(['connection'], (child) => {
@@ -308,10 +524,39 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
                 path: '/api/ai-prison/watchdog/status',
                 methods: ['GET'],
                 requestBody: 'buffered',
-                fetch: async () =>
-                  Response.json(watchdogSnapshot(), { headers: { 'cache-control': 'no-store' } }),
+                fetch: async () => Response.json(watchdogSnapshot(), { headers: { 'cache-control': 'no-store' } }),
               }),
             'ai-prison-watchdog: status api',
+          )
+          child.effect(
+            () =>
+              child.connection.fetch.register({
+                path: '/api/ai-prison/watchdog/action',
+                methods: ['POST'],
+                requestBody: 'buffered',
+                fetch: async (request) => {
+                  let body = {}
+                  try {
+                    body = await request.json()
+                  } catch {
+                    body = {}
+                  }
+                  const action = typeof body.action === 'string' ? body.action : ''
+                  const target = typeof body.target === 'string' ? body.target : ''
+                  if (action === 'confirm-pause') {
+                    watchdogState.graceUntil = Date.now() + PAUSE_GRACE_MS
+                    appendIncident({ kind: 'pause-confirmed', detail: `用户二次确认继续插件操作（宽限 10 分钟）` })
+                    return Response.json({ ok: true })
+                  }
+                  if (action === 'release') return Response.json(releaseTarget(target))
+                  if (action === 'close') {
+                    const ok = await disableTarget(target, 'manual-close')
+                    return Response.json({ ok })
+                  }
+                  return Response.json({ ok: false, error: 'unknown action' }, { status: 400 })
+                },
+              }),
+            'ai-prison-watchdog: action api',
           )
         } catch (error) {
           watchdogState.degraded = `status api: ${String((error && error.message) || error)}`
@@ -322,11 +567,13 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     watchdogState.degraded = `connection: ${String((error && error.message) || error)}`
   }
 
-  log.info(`[ai-prison-watchdog] observe 模式已启动（数据目录 ${dataDir}）`)
+  log.info(`[ai-prison-watchdog] ${watchdogState.mode} 模式已启动（数据目录 ${dataDir}）`)
   return {
     snapshot: watchdogSnapshot,
     sample,
     readCrashLogs,
+    disableTarget,
+    releaseTarget,
     dispose() {
       while (cleanups.length > 0) {
         const disposer = cleanups.pop()
@@ -343,17 +590,33 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
 /** Serialisable snapshot shared by the tool and the panel route. */
 export function watchdogSnapshot() {
   const s = watchdogState
+  const quarantine = []
+  for (const [target, entry] of s.quarantine instanceof Map ? s.quarantine : []) {
+    quarantine.push({ target, ...entry })
+  }
   return {
     ok: Boolean(s.startedAt),
     mode: s.mode,
+    enforce: s.enforce,
     startedAt: s.startedAt,
+    runId: s.runId,
     dataDir: s.dataDir,
     degraded: s.degraded,
     heap: s.latest,
     thresholds: s.thresholds,
     waterline: s.waterline,
+    strongWarn: s.strongWarn,
+    pausedAt: s.pausedAt,
+    graceUntil: s.graceUntil,
+    frozenAt: s.frozenAt,
     samples: s.samples.slice(-30),
     operations: topOperations(s.operations, 10),
+    topFive: topOperations(s.operations, 5),
+    quarantine,
+    plans: s.plans.slice(-5),
+    escalation: { level: s.escalation.level, crashes: s.escalation.crashes.slice(-10) },
+    baseline: s.baseline ? { at: s.baseline.at, runId: s.baseline.runId, bundles: s.baseline.bundles } : null,
+    budgets: s.budgets,
     incidents: s.incidents.slice(-20),
     generatedAt: new Date().toISOString(),
   }
