@@ -2,6 +2,27 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.1.4] — 2026-11-18
+
+### Fixed
+
+- **Run drill failed on a second drill**: like `demo`, the CLI replays an
+  existing ledger and then refuses to re-seed credentials that an earlier drill
+  already revoked, so pressing **Run drill** on a ledger that already contained
+  drill events failed with `seed allocate: … credential "cred:resource:drl-N" is
+  present in the global revocation set`. A fresh ledger passes (157 records), and
+  demo-then-drill passes (233 records); only a second drill failed.
+
+### Changed
+
+- **Both actions now start from a clean baseline**: pressing **Run demo** or
+  **Run drill** clears the CLI's own `seg-*.log` files first (two-click
+  confirmation when the ledger is not empty), so every run is deterministic.
+  The action posts `reset-demo` / `reset-drill` to `POST /api/ai-prison/run`;
+  the separate rebuild button is gone.
+- `ai_prison_drill` attaches a `hint` for replay/seed-allocation failures, and
+  the panel explains the clear-first behaviour under the buttons.
+
 ## [1.1.3] — 2026-11-18
 
 ### Added

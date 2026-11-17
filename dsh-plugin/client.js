@@ -39,14 +39,13 @@ window.__ModuleLoader__.load({
         'cli.source': 'Source',
         'action.refresh': 'Refresh',
         'action.loading': 'Reading…',
-        'action.runDemo': 'Run demo (create ledger)',
-        'action.runDrill': 'Run recovery drill',
-        'action.resetDemo': 'Rebuild ledger (clear and run demo)',
-        'action.confirmReset': 'Click again to clear {records} records',
+        'action.runDemo': 'Run demo',
+        'action.runDrill': 'Run drill',
+        'action.confirmRun': 'Click again: clear {records} records and run',
         'action.running': 'Running…',
         'ledger.actions': 'Explicit actions',
-        'ledger.actionsHint': 'These buttons run the bundled CLI and write the ledger; the panel never writes on its own.',
-        'ledger.demoNeedsEmpty': 'The ledger is not empty: the demo needs a fresh ledger. Rebuild it or run the recovery drill instead.',
+        'ledger.actionsHint': 'These buttons run the bundled CLI. An existing ledger is cleared first, so every run starts from a consistent baseline.',
+        'ledger.resetHint': 'The ledger already exists: a run clears its segments first, then executes. Click twice to confirm.',
         'ledger.lastAction': 'Last action',
         'meta.updated': 'Updated {time}',
         'meta.readonly': 'Read-only view: the panel never writes by itself; only the buttons above do.',
@@ -79,14 +78,13 @@ window.__ModuleLoader__.load({
         'cli.source': '来源',
         'action.refresh': '刷新',
         'action.loading': '读取中…',
-        'action.runDemo': '运行 demo（创建账本）',
-        'action.runDrill': '运行恢复演练',
-        'action.resetDemo': '重置账本并重建',
-        'action.confirmReset': '再次点击确认清空 {records} 条记录',
+        'action.runDemo': '运行 demo',
+        'action.runDrill': '运行演练',
+        'action.confirmRun': '再次点击：清空 {records} 条记录并运行',
         'action.running': '运行中…',
         'ledger.actions': '显式操作',
-        'ledger.actionsHint': '这些按钮会运行内置 CLI 并写入账本；面板本身不会自动写入。',
-        'ledger.demoNeedsEmpty': '账本非空：demo 需要空账本。请点「重置账本并重建」，或改用「运行恢复演练」。',
+        'ledger.actionsHint': '这些按钮运行内置 CLI；账本已存在时会先清空，保证每次从一致基线开始。',
+        'ledger.resetHint': '账本已存在：运行会先清空账本段再执行；再次点击确认。',
         'ledger.lastAction': '最近操作',
         'meta.updated': '更新于 {time}',
         'meta.readonly': '只读视图：面板不会自行写入账本，只有上方按钮会写入。',
@@ -271,9 +269,9 @@ window.__ModuleLoader__.load({
     }
 
     function LedgerCard({ ledger, cliFound, busy, onAction, lastResult }) {
-      const [confirmReset, setConfirmReset] = React.useState(false)
+      const [pending, setPending] = React.useState(null)
       const exists = Boolean(ledger && ledger.exists)
-      const canDemo = !exists || ledger.canDemo !== false
+      const needsReset = exists && Number(ledger.segments ?? 0) > 0
       const integrityTone = !exists ? 'none' : ledger.integrity === 'ok' ? 'ok' : 'error'
       const integrityText = !exists ? t('integrity.none') : ledger.integrity === 'ok' ? t('integrity.ok') : t('integrity.failed')
       const entries = [
@@ -289,14 +287,22 @@ window.__ModuleLoader__.load({
         entries.push({ key: 'detail', label: t('ledger.detail'), value: h('span', { style: { ...C.mono, wordBreak: 'break-word' } }, ledger.detail) })
       }
       const disabled = Boolean(busy) || !cliFound
-      const rebuild = () => {
-        if (!confirmReset) {
-          setConfirmReset(true)
+      /** A non-empty ledger is cleared first; that run needs a second click. */
+      const run = (action) => {
+        if (needsReset && pending !== action) {
+          setPending(action)
           return
         }
-        setConfirmReset(false)
-        onAction('reset-demo')
+        setPending(null)
+        onAction(needsReset ? `reset-${action}` : action)
       }
+      const labelOf = (action, idle) => {
+        if (busy === action || busy === `reset-${action}`) return t('action.running')
+        if (needsReset && pending === action) return t('action.confirmRun', { records: ledger.records ?? '?' })
+        return t(idle)
+      }
+      const confirmStyle = (action) =>
+        needsReset && pending === action ? { ...C.actionBtn, color: '#b45309', borderColor: '#f59e0b' } : C.actionBtn
       return h(
         'section',
         { style: C.card },
@@ -313,35 +319,11 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 } },
-          h(
-            'button',
-            { type: 'button', style: C.actionBtn, disabled: disabled || !canDemo, onClick: () => onAction('demo') },
-            busy === 'demo' ? t('action.running') : t('action.runDemo'),
-          ),
-          h(
-            'button',
-            { type: 'button', style: C.actionBtn, disabled, onClick: () => onAction('drill') },
-            busy === 'drill' ? t('action.running') : t('action.runDrill'),
-          ),
-          exists
-            ? h(
-                'button',
-                {
-                  type: 'button',
-                  style: confirmReset ? { ...C.actionBtn, color: '#b45309', borderColor: '#f59e0b' } : C.actionBtn,
-                  disabled,
-                  onClick: rebuild,
-                },
-                busy === 'reset-demo'
-                  ? t('action.running')
-                  : confirmReset
-                    ? t('action.confirmReset', { records: ledger.records ?? '?' })
-                    : t('action.resetDemo'),
-              )
-            : null,
+          h('button', { type: 'button', style: confirmStyle('demo'), disabled, onClick: () => run('demo') }, labelOf('demo', 'action.runDemo')),
+          h('button', { type: 'button', style: confirmStyle('drill'), disabled, onClick: () => run('drill') }, labelOf('drill', 'action.runDrill')),
           h('span', { style: { ...C.muted, fontSize: 11.5 } }, t('ledger.actionsHint')),
         ),
-        !canDemo ? h('p', { style: { ...C.muted, fontSize: 12, margin: '8px 0 0' } }, t('ledger.demoNeedsEmpty')) : null,
+        needsReset ? h('p', { style: { ...C.muted, fontSize: 12, margin: '8px 0 0' } }, t('ledger.resetHint')) : null,
         lastResult
           ? h(
               'p',

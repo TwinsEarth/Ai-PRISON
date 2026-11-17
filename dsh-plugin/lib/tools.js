@@ -190,6 +190,13 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
       output: stringOutput,
       async execute(args, exec) {
         const outcome = await invoke({ ctx, config, exec, subcommand: 'drill', dataDir: args?.data_dir })
+        if (!outcome.ok) {
+          const text = `${outcome.payload.stdout || ''}\n${outcome.payload.stderr || ''}`
+          if (/reopened ledger|seed allocate/i.test(text)) {
+            outcome.payload.hint =
+              '账本已被此前的演练写入：再次演练会重放旧事件并拒绝重新分配已吊销的凭据。请清空该数据目录下的 seg-*.log（或换一个空 data_dir）后重试；面板的「运行演练」会自动先清空。'
+          }
+        }
         return toolResult(outcome.payload)
       },
     })

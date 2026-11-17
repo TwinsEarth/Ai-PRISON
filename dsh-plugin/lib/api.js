@@ -31,7 +31,7 @@ export function resolveSessionCwd(ctx) {
   return undefined
 }
 
-const ACTIONS = new Set(['demo', 'drill', 'reset', 'reset-demo'])
+const ACTIONS = new Set(['demo', 'drill', 'reset', 'reset-demo', 'reset-drill'])
 
 function jsonResponse(payload, status = 200) {
   return Response.json(payload, { status, headers: { 'cache-control': 'no-store' } })
@@ -95,7 +95,7 @@ export function registerApi({ ctx, config = {}, logger } = {}) {
           const dataDir = requested ? requested : resolveDataDir({ config, cwd })
 
           let removed = []
-          if (action === 'reset' || action === 'reset-demo') {
+          if (action === 'reset' || action === 'reset-demo' || action === 'reset-drill') {
             const reset = resetLedger(dataDir)
             if (!reset.ok) {
               return jsonResponse({ ok: false, action, dataDir, error: reset.error || 'reset failed' }, 500)
@@ -116,7 +116,7 @@ export function registerApi({ ctx, config = {}, logger } = {}) {
             return jsonResponse({ ok: false, error: resolved.missing, reason: 'cli-missing' }, 409)
           }
           const timeoutMs = Number(config.timeoutMs) > 0 ? Number(config.timeoutMs) : 120_000
-          const runAction = action === 'reset-demo' ? 'demo' : action
+          const runAction = action.startsWith('reset-') ? action.slice('reset-'.length) : action
           if (runAction === 'demo' && listSegments(dataDir).length > 0) {
             return jsonResponse(
               {
@@ -124,7 +124,7 @@ export function registerApi({ ctx, config = {}, logger } = {}) {
                 action,
                 dataDir,
                 error: 'ledger-not-empty',
-                hint: '账本已有记录：demo 需要空账本。请点「重置账本并重建」，或改用「运行恢复演练」。',
+                hint: '账本已有记录：demo 需要空账本。请点「重置账本并重建」，或改用「运行演练」。',
               },
               409,
             )
