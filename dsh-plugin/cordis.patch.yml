@@ -1,21 +1,30 @@
 # ai-prison-dsh-plugin: the AI Prison governance bundle.
 #
-# One row carries both halves: the Host half registers the six aiprison_* tools
-# and the read-only status API behind the panel, the Client half registers the
-# sidebar panel that renders the L0–L5 matrix and the audit-chain state.
+# Two rows:
+#   ai-prison          Host tools + read-only status API + the sidebar panel
+#                      (L0-L5 matrix, audit chain, plugin prison and memory cards).
+#   ai-prison-watchdog P0 watchdog in OBSERVE mode: samples the host heap,
+#                      accounts plugin operations, reads recent host crash logs and
+#                      serves /api/ai-prison/watchdog/status. It never enables or
+#                      disables a plugin; enforcement arrives in later phases.
 #
 # Optional config (a profile-level patch replaces this block wholesale, so
 # restate every field you want to keep):
 #
 #   config:
-#     # Absolute path to an aiprison binary. Default: the bundled build for
-#     # this platform, else `aiprison` on PATH.
-#     cliPath: ''
-#     # Durable ledger directory. Default: <session working directory>/.ai-prison
-#     dataDir: ''
-#     # Per-call timeout for the bundled CLI, milliseconds.
-#     timeoutMs: 120000
+#     cliPath: ''        # absolute path to an aiprison binary
+#     dataDir: ''        # durable ledger directory (default <session cwd>/.ai-prison)
+#     timeoutMs: 120000  # per-call CLI timeout
+#
+# The watchdog accepts:
+#
+#   config:
+#     sampleMs: 5000     # heap sampling interval
+#     observe: true      # P0 is observe-only; enforcement is not implemented yet
 - insert:
     - id: ai-prison
       name: '@twinsearth/ai-prison-dsh-plugin'
+      config: {}
+    - id: ai-prison-watchdog
+      name: '@twinsearth/ai-prison-dsh-plugin/watchdog'
       config: {}

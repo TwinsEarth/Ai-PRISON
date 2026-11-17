@@ -2,6 +2,35 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.2.0] — 2026-11-18
+
+### Added — P0 memory watchdog (observe mode)
+
+- **New loader row `ai-prison-watchdog`** (`watchdog.js` + `lib/watchdog-*.js`):
+  samples the host heap every 5 s (`process.memoryUsage` + `v8.getHeapStatistics`),
+  derives the design thresholds from the actual heap limit (300/500 MB per plugin,
+  3.0/3.9/5.0 GB total, 4/5 GB operation gates), classifies the waterline
+  (`ok` → `warn` → `pause` → `block`) and records threshold crossings, per-plugin
+  operation counts (install/remove = 1, enable = 1, disable = 0.5) and estimated
+  heap deltas per plugin.
+- **Crash-history scan**: on activation it reads new
+  `crash-*-host.log` files from the desktop log directory, parses
+  phase/OOM/exit-code and appends them to the incident journal.
+- **Read-only API** `GET /api/ai-prison/watchdog/status` and a new
+  `ai_prison_watchdog_status` tool.
+- **Panel**: two new cards — **Memory watchdog** (heap bar, used/limit, RSS,
+  warn/pause/block thresholds) and **Plugin prison** (top-5 plugins by estimated
+  heap, hot-operation counts, recent incidents). Both label themselves
+  "observe mode: records only, never closes plugins".
+- State is persisted under `<profile>/.ai-prison-watchdog/`
+  (`state.json`, `incidents.jsonl`).
+
+### Explicitly not in this release
+
+- No automatic closing, disabling or quarantine: enforcement (P1–P3 of
+  `AI-PRISON-WATCHDOG-DESIGN.md`) is not implemented and requires explicit
+  confirmation.
+
 ## [1.1.4] — 2026-11-18
 
 ### Fixed

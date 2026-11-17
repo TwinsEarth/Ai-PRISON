@@ -43,6 +43,19 @@ deleted and the action runs, because the CLI replays an existing ledger and
 refuses to re-seed credentials that earlier runs already revoked (`demo` twice,
 or a second `drill`, would otherwise fail).
 
+## Memory watchdog (P0, observe only)
+
+A second loader row (`ai-prison-watchdog`) samples the host heap every 5 seconds,
+derives the design thresholds from the real heap limit (300/500 MB per plugin,
+3.0/3.9/5.0 GB total, 4/5 GB operation gates), accounts plugin operations
+(install/remove = 1, enable = 1, disable = 0.5), estimates each plugin's heap
+delta around those operations and reads new `crash-*-host.log` files at startup.
+It exposes `GET /api/ai-prison/watchdog/status` and the read-only
+`ai_prison_watchdog_status` tool; the panel adds **Memory watchdog** and
+**Plugin prison** cards. **Observe mode never enables or disables a plugin** —
+enforcement (P1–P3) is not implemented and needs explicit confirmation.
+State lives in `<profile>/.ai-prison-watchdog/`.
+
 ## Ledger directory
 
 Default for tools: `<session working directory>/.ai-prison`, so the audit trail

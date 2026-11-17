@@ -59,6 +59,7 @@ check('runtime files exist', () => {
   const required = [
     'index.js',
     'client.js',
+    'watchdog.js',
     'cordis.patch.yml',
     'icon.svg',
     'README.md',
@@ -74,6 +75,9 @@ check('runtime files exist', () => {
     'lib/harness.js',
     'lib/levels.js',
     'lib/status.js',
+    'lib/watchdog-policy.js',
+    'lib/watchdog-runtime.js',
+    'lib/watchdog-state.js',
     'lib/tools.js',
   ]
   for (const relative of required) if (!fs.existsSync(path.join(pluginRoot, relative))) throw new Error(`missing ${relative}`)

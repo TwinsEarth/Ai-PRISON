@@ -84,6 +84,8 @@ test('the client bundle reads the status API and posts the ledger actions', asyn
   assert.match(source, /action\.confirmRun/)
   assert.match(source, /reset-\$\{action\}/)
   assert.match(source, /ledger\.resetHint/)
+  assert.match(source, /api\/ai-prison\/watchdog\/status/)
+  assert.match(source, /watchdog\.mode/)
   assert.match(source, /credentials: 'same-origin'/)
   assert.doesNotMatch(source, /document\.body\.appendChild/)
   assert.doesNotMatch(source, /<script/)

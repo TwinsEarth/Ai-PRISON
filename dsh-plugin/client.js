@@ -11,6 +11,7 @@ window.__ModuleLoader__.load({
     const NS = 'ai-prison'
     const STATUS_URL = 'api/ai-prison/status'
     const RUN_URL = 'api/ai-prison/run'
+    const WATCHDOG_URL = 'api/ai-prison/watchdog/status'
 
     const DICTS = {
       en: {
@@ -49,6 +50,25 @@ window.__ModuleLoader__.load({
         'ledger.lastAction': 'Last action',
         'meta.updated': 'Updated {time}',
         'meta.readonly': 'Read-only view: the panel never writes by itself; only the buttons above do.',
+        'watchdog.title': 'Memory watchdog',
+        'watchdog.mode': 'Observe mode: records only, never closes plugins',
+        'watchdog.disabled': 'Watchdog row not enabled; heap observation is unavailable.',
+        'watchdog.heap': 'Heap used',
+        'watchdog.limit': 'Heap limit',
+        'watchdog.rss': 'RSS',
+        'watchdog.waterline': 'Waterline',
+        'watchdog.thresholds': 'Warn / pause / block',
+        'waterline.ok': 'OK',
+        'waterline.warn': 'Warning',
+        'waterline.pause': 'Paused',
+        'waterline.block': 'Blocked',
+        'prison.title': 'Plugin prison',
+        'prison.top': 'Top {n} plugins by estimated heap',
+        'prison.ops': 'Hot ops',
+        'prison.estimate': 'Est.',
+        'prison.incidents': 'Recent incidents',
+        'prison.empty': 'No quarantined plugins: observe mode never closes one.',
+        'prison.noestimates': 'No plugin operations observed yet.',
         'error.title': 'Cannot read the status',
         'error.hint': 'Check that the bundle is enabled and the aiprison CLI resolves for this platform.',
       },
@@ -88,6 +108,25 @@ window.__ModuleLoader__.load({
         'ledger.lastAction': '最近操作',
         'meta.updated': '更新于 {time}',
         'meta.readonly': '只读视图：面板不会自行写入账本，只有上方按钮会写入。',
+        'watchdog.title': '内存看护',
+        'watchdog.mode': '观察模式：只记录，不关闭插件',
+        'watchdog.disabled': 'watchdog 行未启用，暂时无法观察内存。',
+        'watchdog.heap': '已用堆',
+        'watchdog.limit': '堆上限',
+        'watchdog.rss': 'RSS',
+        'watchdog.waterline': '水位',
+        'watchdog.thresholds': '提醒 / 暂停 / 禁止',
+        'waterline.ok': '正常',
+        'waterline.warn': '警告',
+        'waterline.pause': '暂停',
+        'waterline.block': '禁止',
+        'prison.title': '插件监狱',
+        'prison.top': '按估算内存排序的前 {n} 个插件',
+        'prison.ops': '热操作',
+        'prison.estimate': '估算',
+        'prison.incidents': '最近事件',
+        'prison.empty': '没有被隔离的插件：观察模式不会关闭任何插件。',
+        'prison.noestimates': '还没有观察到插件操作。',
         'error.title': '无法读取状态',
         'error.hint': '请确认插件已启用，且本平台能解析到 aiprison CLI。',
       },
@@ -234,6 +273,130 @@ window.__ModuleLoader__.load({
       })
     }
 
+    /** Read-only watchdog snapshot; a missing row (or 404) simply hides the cards. */
+    function fetchWatchdog() {
+      return fetch(new URL(WATCHDOG_URL, document.baseURI), {
+        credentials: 'same-origin',
+        headers: { accept: 'application/json' },
+      }).then((response) => {
+        if (!response.ok) return null
+        return response.json().then((payload) => (payload && payload.ok ? payload : null))
+      })
+    }
+
+    function waterlineText(level) {
+      if (level === 'block') return t('waterline.block')
+      if (level === 'pause') return t('waterline.pause')
+      if (level === 'warn') return t('waterline.warn')
+      return t('waterline.ok')
+    }
+
+    function MemoryCard({ watchdog }) {
+      if (!watchdog) {
+        return h(
+          'section',
+          { style: C.card },
+          h('div', { style: C.cardHead }, t('watchdog.title')),
+          h('p', { style: { ...C.muted, fontSize: 12, margin: 0 } }, t('watchdog.disabled')),
+        )
+      }
+      const heap = watchdog.heap || {}
+      const thresholds = watchdog.thresholds || {}
+      const ratio = heap.heapLimit > 0 ? Math.min(1, heap.heapUsed / heap.heapLimit) : 0
+      const tone = watchdog.waterline === 'ok' ? C.ok.color : watchdog.waterline === 'warn' ? '#b45309' : C.error.color
+      return h(
+        'section',
+        { style: C.card },
+        h(
+          'div',
+          { style: C.cardHead },
+          t('watchdog.title'),
+          h('span', { style: { ...C.chip, marginLeft: 8 } }, t('watchdog.mode')),
+          h(Pill, { tone: watchdog.waterline === 'ok' ? 'ok' : 'error', text: `${t('watchdog.waterline')}: ${waterlineText(watchdog.waterline)}` }),
+        ),
+        h(
+          'div',
+          { style: { height: 10, borderRadius: 999, background: 'var(--dsw-alias-border-l1, rgba(0,0,0,.08))', overflow: 'hidden', margin: '4px 0 10px' } },
+          h('div', { style: { width: `${Math.round(ratio * 1000) / 10}%`, height: '100%', background: tone } }),
+        ),
+        h(
+          'div',
+          { style: C.grid },
+          h('div', { style: C.key }, t('watchdog.heap')),
+          h('div', { style: C.mono }, `${Math.round(heap.heapUsed / 1048576)} MB / ${Math.round(heap.heapLimit / 1048576)} MB（${Math.round(ratio * 100)}%）`),
+          h('div', { style: C.key }, t('watchdog.rss')),
+          h('div', { style: C.mono }, `${Math.round((heap.rss || 0) / 1048576)} MB`),
+          h('div', { style: C.key }, t('watchdog.thresholds')),
+          h(
+            'div',
+            { style: C.mono },
+            `${Math.round(thresholds.totalWarn / 1048576)} / ${Math.round(thresholds.totalPause / 1048576)} / ${Math.round(thresholds.totalBlock / 1048576)} MB`,
+          ),
+        ),
+      )
+    }
+
+    function PrisonCard({ watchdog }) {
+      if (!watchdog) {
+        return h(
+          'section',
+          { style: C.card },
+          h('div', { style: C.cardHead }, t('prison.title')),
+          h('p', { style: { ...C.muted, fontSize: 12, margin: 0 } }, t('watchdog.disabled')),
+        )
+      }
+      const operations = Array.isArray(watchdog.operations) ? watchdog.operations.slice(0, 5) : []
+      const incidents = Array.isArray(watchdog.incidents) ? watchdog.incidents.slice(-5).reverse() : []
+      return h(
+        'section',
+        { style: C.card },
+        h('div', { style: C.cardHead }, t('prison.title'), h('span', { style: { ...C.chip, marginLeft: 8 } }, t('watchdog.mode'))),
+        operations.length === 0
+          ? h('p', { style: { ...C.muted, fontSize: 12, margin: '0 0 6px' } }, t('prison.noestimates'))
+          : h(
+              'table',
+              { style: C.table },
+              h(
+                'thead',
+                null,
+                h('tr', null, h('th', { style: C.th }, t('prison.top', { n: operations.length })), h('th', { style: C.th }, t('prison.estimate')), h('th', { style: C.th }, t('prison.ops'))),
+              ),
+              h(
+                'tbody',
+                null,
+                operations.map((row) =>
+                  h(
+                    'tr',
+                    { key: row.target },
+                    h('td', { style: { ...C.td, ...C.mono, wordBreak: 'break-all' } }, row.target),
+                    h('td', { style: C.td }, `${row.estimateMB} MB`),
+                    h('td', { style: C.td }, String(row.count)),
+                  ),
+                ),
+              ),
+            ),
+        h('p', { style: { ...C.muted, fontSize: 12, margin: '10px 0 4px' } }, t('prison.empty')),
+        incidents.length > 0
+          ? h(
+              'div',
+              null,
+              h('div', { style: { ...C.key, marginBottom: 4 } }, t('prison.incidents')),
+              h(
+                'div',
+                { style: { display: 'flex', flexDirection: 'column', gap: 4 } },
+                incidents.map((incident, index) =>
+                  h(
+                    'div',
+                    { key: `${incident.at || index}-${index}`, style: { ...C.mono, fontSize: 11.5, wordBreak: 'break-word' } },
+                    `${incident.at || ''} · ${incident.kind || 'event'}${incident.detail ? ` · ${incident.detail}` : ''}${incident.target ? ` · ${incident.target}` : ''}`,
+                  ),
+                ),
+              ),
+            )
+          : null,
+      )
+    }
+
     function MatrixCard({ levels }) {
       if (!Array.isArray(levels) || levels.length === 0) {
         return h('section', { style: C.card }, h('div', { style: C.cardHead }, t('matrix.title')), h('p', { style: { ...C.muted, margin: 0, fontSize: 12 } }, t('matrix.empty')))
@@ -349,6 +512,7 @@ window.__ModuleLoader__.load({
       const [updated, setUpdated] = React.useState(null)
       const [busy, setBusy] = React.useState(null)
       const [lastResult, setLastResult] = React.useState(null)
+      const [watchdog, setWatchdog] = React.useState(null)
 
       const load = React.useCallback(() => {
         setLoading(true)
@@ -370,6 +534,25 @@ window.__ModuleLoader__.load({
         const timer = setInterval(load, 20000)
         return () => clearInterval(timer)
       }, [load])
+
+      React.useEffect(() => {
+        let cancelled = false
+        const tick = () => {
+          fetchWatchdog()
+            .then((payload) => {
+              if (!cancelled) setWatchdog(payload)
+            })
+            .catch(() => {
+              if (!cancelled) setWatchdog(null)
+            })
+        }
+        tick()
+        const timer = setInterval(tick, 15000)
+        return () => {
+          cancelled = true
+          clearInterval(timer)
+        }
+      }, [])
 
       const runAction = React.useCallback(
         (action) => {
@@ -421,6 +604,8 @@ window.__ModuleLoader__.load({
           onAction: runAction,
           lastResult,
         }),
+        h(MemoryCard, { watchdog }),
+        h(PrisonCard, { watchdog }),
         h(
           'p',
           { style: { ...C.muted, fontSize: 12, margin: '2px 0 0', display: 'flex', gap: 12, flexWrap: 'wrap' } },

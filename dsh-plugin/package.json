@@ -1,6 +1,6 @@
 {
   "name": "@twinsearth/ai-prison-dsh-plugin",
-  "version": "1.1.4",
+  "version": "1.2.0",
   "description": "AI Prison for DSH: six governance tools wrapping the aiprison CLI (levels, demo, drill, inspect, verify, repair-tail) plus a panel for the L0–L5 matrix and the audit-chain state. The CLI ships bundled for Windows, macOS and Linux; every capability-removal backend stays simulated.",
   "type": "module",
   "main": "index.js",
@@ -37,11 +37,13 @@
     "./client": "./client.js",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json",
-    "./icon": "./icon.svg"
+    "./icon": "./icon.svg",
+    "./watchdog": "./watchdog.js"
   },
   "files": [
     "index.js",
     "client.js",
+    "watchdog.js",
     "lib/*.js",
     "cordis.patch.yml",
     "locale/*.json",

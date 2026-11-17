@@ -2,6 +2,8 @@ import path from 'node:path'
 import { resolveCli, resolveDataDir, runCli } from './cli.js'
 import { loadDefineTool } from './harness.js'
 import { buildStatus, statusSummary } from './status.js'
+import { watchdogSnapshot } from './watchdog-runtime.js'
+import { formatBytes } from './watchdog-policy.js'
 
 const MAX_TEXT = 4_000
 const TAIL_LINES = 60
@@ -156,6 +158,54 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
         }
         const status = await buildStatus({ config, cwd })
         return toolResult({ ok: true, summary: statusSummary(status), status })
+      },
+    })
+
+    register({
+      name: 'ai_prison_watchdog_status',
+      description:
+        'Read the AI Prison watchdog snapshot (P0 observe mode): host heap usage and limit, derived thresholds, the waterline verdict, per-plugin heap estimates, hot plugin-operation counts and recent incidents (including host crash logs observed at startup). Observe mode never enables or disables a plugin.',
+      parameters: {},
+      output: stringOutput,
+      async execute() {
+        const snapshot = watchdogSnapshot()
+        if (!snapshot.ok) {
+          return toolResult({
+            ok: false,
+            mode: 'disabled',
+            hint: 'watchdog 行未启用：在插件配置里启用 ai-prison-watchdog 后重启即可开始观察。',
+          })
+        }
+        const heap = snapshot.heap || {}
+        return toolResult({
+          ok: true,
+          mode: snapshot.mode,
+          dataDir: snapshot.dataDir,
+          degraded: snapshot.degraded,
+          waterline: snapshot.waterline,
+          heap: {
+            used: formatBytes(heap.heapUsed),
+            total: formatBytes(heap.heapTotal),
+            limit: formatBytes(heap.heapLimit),
+            rss: formatBytes(heap.rss),
+            heapUsedBytes: heap.heapUsed,
+            heapLimitBytes: heap.heapLimit,
+          },
+          thresholds: snapshot.thresholds
+            ? {
+                totalWarn: formatBytes(snapshot.thresholds.totalWarn),
+                totalPause: formatBytes(snapshot.thresholds.totalPause),
+                totalBlock: formatBytes(snapshot.thresholds.totalBlock),
+                singleWarn: formatBytes(snapshot.thresholds.singleWarn),
+                singleBlock: formatBytes(snapshot.thresholds.singleBlock),
+                opWarn: formatBytes(snapshot.thresholds.opWarn),
+                opBlock: formatBytes(snapshot.thresholds.opBlock),
+              }
+            : null,
+          operations: snapshot.operations,
+          incidents: snapshot.incidents,
+          note: 'observe 模式：仅观察与记录，不自动关闭任何插件。',
+        })
       },
     })
 
