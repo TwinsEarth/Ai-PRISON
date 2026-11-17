@@ -30,9 +30,24 @@ function git(...args) {
   return String(result.stdout || '').trim()
 }
 
+/**
+ * The CLI version belongs to the Go project, not to the plugin: a plugin tag
+ * such as `dsh-plugin-v1.1.0` must not leak into `aiprison version`. Prefer the
+ * declared default in cmd/aiprison/main.go, then any `vX.Y.Z` tag reachable from
+ * HEAD (plugin tags are excluded by the pattern).
+ */
 function toolVersion() {
-  const tag = git('describe', '--tags', '--abbrev=0')
-  return tag.startsWith('v') ? tag.slice(1) : tag || '1.0.9'
+  if (process.env.AIPRISON_VERSION) return process.env.AIPRISON_VERSION
+  try {
+    const main = fs.readFileSync(path.join(repoRoot, 'cmd', 'aiprison', 'main.go'), 'utf8')
+    const declared = main.match(/\bversion\s*=\s*"([0-9][^"]*)"/)
+    if (declared) return declared[1]
+  } catch {
+    // fall through to the tag lookup
+  }
+  const tag = git('describe', '--tags', '--match', 'v[0-9]*', '--abbrev=0')
+  if (tag.startsWith('v')) return tag.slice(1)
+  return '1.0.0'
 }
 
 function buildTime() {
