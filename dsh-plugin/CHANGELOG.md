@@ -2,6 +2,35 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.4.0] — 2026-11-18
+
+### Added — P2 crash enforcement + per-plugin budgets, P3 external guard
+
+- **Crash enforcement (requirement 3/4)**: `crashFallback` defaults to `enforce`
+  now. A crash attributed to a plugin quarantines it, disables it live, and with
+  L2/L3 also closes the bundles that exceed the clean baseline (L2) or everything
+  outside the baseline (L3, never below base + web-app). Plans persist in
+  `state.json`, a machine-readable `pending-boot.json` is written for the
+  external guard, and quarantined targets are re-disabled on the next boot.
+- **Per-plugin startup budget (requirement 1)**: a new isolated probe
+  (`lib/budget-probe.js` + `lib/budget-child.mjs`) spawns the bundled Node with
+  `--expose-gc`, imports one plugin package from the profile and reports its
+  retained module-load delta. Plugins installed or enabled in the last 30 minutes
+  are probed automatically after boot (max 5, only at the `ok` waterline);
+  results land in `budgets` inside `state.json`. Above 500 MB the plugin is
+  quarantined and closed (pending the next boot for a hard block); above 300 MB
+  an incident is recorded.
+- **External guard (P3)**: `E:ToFuture	oolsaiprison-guard.ps1/.cmd` runs before
+  DSH, reads `pending-boot.json`, backs up the profile `package.json`, removes
+  the bundles that must stay closed (or keeps only the L3 baseline), and then
+  launches DSH. It is the only component that can break an import-phase crash
+  loop, where the in-process watchdog never runs.
+
+### Fixed
+- Watchdog probes keep the event loop alive no longer (timer `unref`), keeping
+  the test suite fast and the host responsive.
+
+## [1.3.0] — 2026-11-18
 ## [1.3.0] — 2026-11-18
 
 ### Added — P1 enforcement (requirements 2, 3, 4 dry-run, 5)

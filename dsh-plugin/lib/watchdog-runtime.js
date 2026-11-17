@@ -4,6 +4,7 @@ import path from 'node:path'
 import v8 from 'node:v8'
 import crypto from 'node:crypto'
 import { watchdogState, MAX_SAMPLES, MAX_INCIDENTS } from './watchdog-state.js'
+import { probeBudget } from './budget-probe.js'
 import {
   attributeCrash,
   classifyWaterline,
@@ -127,6 +128,8 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
   watchdogState.runId = crypto.randomUUID()
   watchdogState.dataDir = dataDir
   watchdogState.config = { sampleMs: SAMPLE_MS, ...config }
+  watchdogState.crashFallback = config.crashFallback === 'dry-run' ? 'dry-run' : 'enforce'
+  watchdogState.probeStarted = false
   watchdogState.lastCrashScan = 0
   watchdogState.baseline = null
   for (const plan of watchdogState.plans) plan.applied = false
@@ -146,6 +149,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       escalation: watchdogState.escalation,
       baseline: watchdogState.baseline,
       budgets: watchdogState.budgets,
+      quarantine: [...watchdogState.quarantine].map(([target, entry]) => ({ target, ...entry })),
     }
     try {
       fs.writeFileSync(stateFile, `${JSON.stringify(payload, null, 2)}\n`)
@@ -162,6 +166,11 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       if (parsed.escalation && Array.isArray(parsed.escalation.crashes)) watchdogState.escalation = { crashes: parsed.escalation.crashes.slice(-50), level: parsed.escalation.level || 'L0' }
       if (parsed.baseline && Array.isArray(parsed.baseline.bundles)) watchdogState.baseline = parsed.baseline
       if (parsed.budgets && typeof parsed.budgets === 'object') watchdogState.budgets = parsed.budgets
+      if (Array.isArray(parsed.quarantine)) {
+        for (const entry of parsed.quarantine) {
+          if (entry && typeof entry.target === 'string') watchdogState.quarantine.set(entry.target, { reason: entry.reason || 'crash', level: entry.level || 'L1', at: entry.at || new Date().toISOString(), release: entry.release || 'manual', evidence: entry.evidence || '' })
+        }
+      }
     } catch {
       // first run or unreadable state: start clean
     }
@@ -382,6 +391,118 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     return { ok: true }
   }
 
+  function writePendingBoot(payload) {
+    try {
+      fs.writeFileSync(path.join(dataDir, 'pending-boot.json'), JSON.stringify({ writtenAt: new Date().toISOString(), ...payload }, null, 2) + '\n')
+    } catch {
+      // wrapper reads this file; best effort
+    }
+  }
+
+  async function disableMany(targets, reason) {
+    const unique = [...new Set(targets)].filter((target) => target && !EXEMPT_TARGETS.has(target) && !watchdogState.quarantine.has(target))
+    const disabled = []
+    for (const target of unique) {
+      watchdogState.quarantine.set(target, { reason, level: 'crash', at: new Date().toISOString(), release: 'manual', evidence: reason })
+      if (await disableTarget(target, reason)) disabled.push(target)
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    }
+    return disabled
+  }
+
+  async function enforceCrashPlan(plan) {
+    if (!plan || !plan.target || watchdogState.crashFallback !== 'enforce') return
+    try {
+      watchdogState.quarantine.set(plan.target, { reason: 'crash', level: plan.level, at: new Date().toISOString(), release: 'manual', evidence: plan.reason })
+      const disabled = [plan.target].filter((target) => !EXEMPT_TARGETS.has(target))
+      await disableTarget(plan.target, 'crash-' + plan.level)
+      let targets = [plan.target]
+      if (plan.level === 'L2' || plan.level === 'L3') {
+        const manager = refs.manager
+        const rows = manager && typeof manager.listBundles === 'function' ? await manager.listBundles() : []
+        const baselineNames = watchdogState.baseline ? watchdogState.baseline.bundles.map((row) => row.name) : []
+        targets = plan.level === 'L3'
+          ? rows.filter((row) => row.enabled && !EXEMPT_TARGETS.has(row.name) && !baselineNames.includes(row.name)).map((row) => row.name)
+          : diffBaseline(rows, watchdogState.baseline).changed.map((row) => row.name).concat(plan.target)
+        disabled.push(...(await disableMany(targets, 'crash-' + plan.level)))
+      }
+      writePendingBoot({
+        level: plan.level,
+        reason: 'crash',
+        attribution: plan.target,
+        disable: [...new Set(targets)],
+        keep: watchdogState.baseline ? watchdogState.baseline.bundles.map((row) => row.name) : [],
+      })
+      appendIncident({ kind: 'crash-enforced', level: plan.level, target: plan.target, detail: '已按 ' + plan.level + ' 隔离 ' + disabled.length + ' 个目标（pending-boot.json 供外部包装器下次启动前使用）' })
+      persist(true)
+    } catch (error) {
+      watchdogState.degraded = 'crash enforce: ' + String((error && error.message) || error)
+    }
+  }
+
+  async function reapplyQuarantine() {
+    for (const [target, entry] of watchdogState.quarantine) {
+      if (entry.release === 'restart') {
+        watchdogState.quarantine.delete(target)
+        continue
+      }
+      void disableTarget(target, 'boot-reapply')
+    }
+  }
+
+  async function probeOne(name) {
+    const result = await probeBudget({ profileDir, packageName: name })
+    if (!result.ok) {
+      watchdogState.budgets[name] = { error: String(result.error || 'probe-failed').slice(0, 300), measuredAt: new Date().toISOString(), source: 'module-load-probe' }
+      persist(true)
+      return
+    }
+    watchdogState.budgets[name] = { moduleLoadMB: result.moduleLoadMB, rssMB: result.rssMB, ms: result.ms, measuredAt: new Date().toISOString(), source: 'module-load-probe' }
+    const thresholds = watchdogState.thresholds
+    const mb = result.moduleLoadMB
+    if (thresholds && mb >= Math.round(thresholds.singleBlock / (1024 * 1024))) {
+      appendIncident({ kind: 'plugin-budget', target: name, level: 'block', detail: '启动实测 ' + mb + ' MB > 500 MB，建议禁止该插件' })
+      if (watchdogState.enforce) {
+        watchdogState.quarantine.set(name, { reason: 'budget', level: 'L1', at: new Date().toISOString(), release: 'manual', evidence: mb + ' MB > 500 MB' })
+        void disableTarget(name, 'budget-over-500MB')
+        writePendingBoot({ level: 'L1', reason: 'budget', disable: [name], keep: [] })
+      }
+    } else if (thresholds && mb >= Math.round(thresholds.singleWarn / (1024 * 1024))) {
+      appendIncident({ kind: 'plugin-budget', target: name, level: 'warn', detail: '启动实测 ' + mb + ' MB > 300 MB，仅提醒' })
+    }
+    persist(true)
+  }
+
+  async function scheduleProbe() {
+    if (watchdogState.probeStarted) return
+    watchdogState.probeStarted = true
+    const manager = refs.manager
+    if (!manager || typeof manager.listBundles !== 'function') return
+    let rows
+    try {
+      rows = await manager.listBundles()
+    } catch {
+      return
+    }
+    const recent = new Set()
+    const cutoff = Date.now() - 30 * 60 * 1000
+    for (const record of readJournalRecords(journalDir)) {
+      const operation = record && record.operation
+      if (!operation || !operation.target) continue
+      if (operation.stage !== 'install' && operation.stage !== 'enable') continue
+      if (Date.parse(operation.time || 0) < cutoff) continue
+      recent.add(operation.target)
+    }
+    const targets = rows
+      .filter((row) => row.enabled && !EXEMPT_TARGETS.has(row.name) && !watchdogState.budgets[row.name] && recent.has(row.name))
+      .map((row) => row.name)
+      .slice(0, 5)
+    for (const name of targets) {
+      if (watchdogState.waterline !== 'ok') break
+      await probeOne(name)
+    }
+  }
+
   // ---- crash attribution and dry-run plans (requirements 3 & 4) -----------
   function readCrashLogs() {
     let entries
@@ -445,6 +566,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
           ? `崩溃归因：${plan.target}${plan.inFlight ? '（崩溃时操作仍在途）' : ''}；${watchdogState.enforce ? 'enforce' : 'dry-run'}`
           : '崩溃归因失败：本 run 无安装/启用记录，不自动关闭',
       })
+      if (watchdogState.enforce && watchdogState.crashFallback === 'enforce') void enforceCrashPlan(plan)
     }
     if (newest > watchdogState.lastCrashScan) {
       watchdogState.lastCrashScan = newest
@@ -457,6 +579,13 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     if (typeof ctx.inject === 'function') {
       ctx.inject(['pluginManager'], (child) => {
         refs.manager = child.pluginManager || (typeof child.get === 'function' ? child.get('pluginManager') : null)
+        if (refs.manager) {
+          void reapplyQuarantine()
+          const probeTimer = setTimeout(() => {
+            void scheduleProbe()
+          }, Number(config.probeDelayMs) > 0 ? Number(config.probeDelayMs) : 30_000)
+          if (typeof probeTimer.unref === 'function') probeTimer.unref()
+        }
       })
     }
   } catch (error) {
@@ -615,6 +744,7 @@ export function watchdogSnapshot() {
     quarantine,
     plans: s.plans.slice(-5),
     escalation: { level: s.escalation.level, crashes: s.escalation.crashes.slice(-10) },
+    crashFallback: s.crashFallback || 'enforce',
     baseline: s.baseline ? { at: s.baseline.at, runId: s.baseline.runId, bundles: s.baseline.bundles } : null,
     budgets: s.budgets,
     incidents: s.incidents.slice(-20),
