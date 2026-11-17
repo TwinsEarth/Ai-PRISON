@@ -1,0 +1,210 @@
+import path from 'node:path'
+import { resolveCli, resolveDataDir, runCli } from './cli.js'
+import { loadDefineTool } from './harness.js'
+import { buildStatus, statusSummary } from './status.js'
+
+const MAX_TEXT = 4_000
+const TAIL_LINES = 60
+
+export function bounded(result, { lines = TAIL_LINES, max = MAX_TEXT } = {}) {
+  const text = String(result || '')
+  const rows = text.split(/\r?\n/)
+  const tail = rows.slice(-lines).join('\n')
+  const clipped = rows.length > lines ? `…[前 ${rows.length - lines} 行省略]…\n${tail}` : tail
+  return clipped.length > max ? `${clipped.slice(-max)}…[截断]` : clipped
+}
+
+function cwdOf(ctx, exec) {
+  try {
+    const wd = ctx && typeof ctx.get === 'function' ? ctx.get('workingDirectory') : undefined
+    const fromService = wd && typeof wd.get === 'function' && exec && exec.agent ? wd.get(exec.agent) : undefined
+    if (typeof fromService === 'string' && fromService) return fromService
+    if (wd && typeof wd.defaultDirectory === 'string' && wd.defaultDirectory) return wd.defaultDirectory
+  } catch {
+    // A profile without workingDirectory still runs the CLI in the host cwd.
+  }
+  return process.cwd()
+}
+
+function parametersOf(config) {
+  const timeout = Number(config && config.timeoutMs) > 0 ? Number(config.timeoutMs) : 120_000
+  return timeout
+}
+
+/**
+ * Build the argument vector for one CLI invocation. `--data-dir` is accepted
+ * before the subcommand, which is the CLI's documented global flag position.
+ */
+async function invoke({ ctx, config, exec, subcommand, args = [], dataDir: explicitDataDir, timeoutMs }) {
+  const resolved = resolveCli({ config })
+  if (!resolved.path) {
+    return {
+      payload: {
+        ok: false,
+        reason: 'cli-missing',
+        error: resolved.missing,
+        hint: '设置 AIPRISON_BIN、在插件配置里填 cliPath，或把 aiprison 放进 PATH。',
+      },
+      ok: false,
+    }
+  }
+  const cwd = cwdOf(ctx, exec)
+  const dataDir = explicitDataDir ? path.resolve(cwd, explicitDataDir) : resolveDataDir({ config, cwd })
+  const result = await runCli(['--data-dir', dataDir, subcommand, ...args], {
+    bin: resolved.path,
+    cwd,
+    timeoutMs: Number(timeoutMs) > 0 ? Number(timeoutMs) : parametersOf(config),
+    signal: exec && exec.signal,
+  })
+  const payload = {
+    ok: result.ok,
+    command: subcommand,
+    dataDir,
+    exitCode: result.exitCode,
+    timedOut: result.timedOut === true,
+    stdout: bounded(result.stdout),
+    stderr: bounded(result.stderr),
+  }
+  return { payload, ok: result.ok, resolved, dataDir, result }
+}
+
+function toolResult(payload) {
+  return JSON.stringify(payload, null, 2)
+}
+
+export async function installTools({ ctx, config = {}, logger } = {}) {
+  if (!ctx || typeof ctx.inject !== 'function') {
+    logger?.warn?.('ctx.inject 不可用，跳过 aiprison_* 工具注册')
+    return false
+  }
+  const loaded = await loadDefineTool()
+  if (!loaded) {
+    logger?.warn?.('无法从 DSH 安装目录解析 @deepseek-ai/dsh-tools，aiprison_* 工具未注册；面板与其余功能不受影响')
+    return false
+  }
+  const { defineTool } = loaded
+  const stringOutput = {
+    schema: { type: 'string' },
+    render: (_args, value) => [{ type: 'text', text: String(value) }],
+  }
+  const dataDirParameter = {
+    type: 'string',
+    description: 'Durable ledger directory. Default: the plugin config, else <session working directory>/.ai-prison.',
+  }
+
+  ctx.inject(['tools'], (child) => {
+    const register = (definition) => {
+      try {
+        child.tools.register(defineTool(definition))
+      } catch (error) {
+        logger?.warn?.(`注册工具 ${definition.name} 失败：${String(error && error.message)}`)
+      }
+    }
+
+    register({
+      name: 'ai_prison_levels',
+      description:
+        'Print the L0–L5 grading matrix of AI Prison: each level code, name, duration class and the capabilities it deprives. Read-only; no ledger is touched.',
+      parameters: {
+        data_dir: { ...dataDirParameter, description: 'Unused by this command; accepted for symmetry with the ledger tools.' },
+      },
+      output: stringOutput,
+      async execute(args, exec) {
+        const outcome = await invoke({ ctx, config, exec, subcommand: 'levels', dataDir: args?.data_dir })
+        if (!outcome.ok) return toolResult(outcome.payload)
+        return toolResult({ ok: true, command: 'levels', matrix: outcome.payload.stdout })
+      },
+    })
+
+    register({
+      name: 'ai_prison_status',
+      description:
+        'Read-only snapshot of AI Prison in this workspace: resolved CLI (path, source, version), the L0–L5 matrix, and the durable ledger directory with its audit-chain integrity and record count. The panel shows the same data.',
+      parameters: {
+        data_dir: dataDirParameter,
+      },
+      output: stringOutput,
+      async execute(args, exec) {
+        const cwd = cwdOf(ctx, exec)
+        const dataDir = args?.data_dir ? path.resolve(cwd, args.data_dir) : undefined
+        if (dataDir) {
+          const status = await buildStatus({ config: { ...config, dataDir }, cwd, root: undefined })
+          return toolResult({ ok: true, summary: statusSummary(status), status })
+        }
+        const status = await buildStatus({ config, cwd })
+        return toolResult({ ok: true, summary: statusSummary(status), status })
+      },
+    })
+
+    register({
+      name: 'ai_prison_demo',
+      description:
+        'Run the end-to-end governance demo (detect → seven-stage adjudication → layered enforcement → audit → appeal/rehabilitation → recovery) and persist its records into the ledger. Writes to the ledger directory; the demo is entirely in-memory simulation, not real isolation or capability removal.',
+      parameters: {
+        data_dir: dataDirParameter,
+      },
+      output: stringOutput,
+      async execute(args, exec) {
+        const outcome = await invoke({ ctx, config, exec, subcommand: 'demo', dataDir: args?.data_dir })
+        return toolResult(outcome.payload)
+      },
+    })
+
+    register({
+      name: 'ai_prison_drill',
+      description:
+        'Run the v1.0.0 recovery drill: walk the reversibility matrix and report PASS/FAIL per assertion plus the overall verdict. Persists drill events into the ledger; all backends stay simulated.',
+      parameters: {
+        data_dir: dataDirParameter,
+      },
+      output: stringOutput,
+      async execute(args, exec) {
+        const outcome = await invoke({ ctx, config, exec, subcommand: 'drill', dataDir: args?.data_dir })
+        return toolResult(outcome.payload)
+      },
+    })
+
+    register({
+      name: 'ai_prison_inspect',
+      description:
+        'Read-only replay of the ledger: hash chain, agents, sentences, revocations, execution receipts and sealed snapshots. Changes nothing on disk.',
+      parameters: {
+        data_dir: dataDirParameter,
+      },
+      output: stringOutput,
+      async execute(args, exec) {
+        const outcome = await invoke({ ctx, config, exec, subcommand: 'inspect', dataDir: args?.data_dir })
+        return toolResult(outcome.payload)
+      },
+    })
+
+    register({
+      name: 'ai_prison_verify',
+      description:
+        'Integrity-check the ledger: verify every per-record hash link, print INTEGRITY OK with the record count and exit 0, or locate the tamper/torn tail and exit 1. Read-only.',
+      parameters: {
+        data_dir: dataDirParameter,
+      },
+      output: stringOutput,
+      async execute(args, exec) {
+        const outcome = await invoke({ ctx, config, exec, subcommand: 'verify', dataDir: args?.data_dir })
+        return toolResult(outcome.payload)
+      },
+    })
+
+    register({
+      name: 'ai_prison_repair_tail',
+      description:
+        'Remove only a genuine torn (incomplete) tail line from the ledger and refuse hard tampering. Mutating: it truncates the damaged tail so later appends stay replayable. Run ai_prison_verify first and inspect the reported reason.',
+      parameters: {
+        data_dir: dataDirParameter,
+      },
+      output: stringOutput,
+      async execute(args, exec) {
+        const outcome = await invoke({ ctx, config, exec, subcommand: 'repair-tail', dataDir: args?.data_dir })
+        return toolResult(outcome.payload)
+      },
+    })
+  })
+  return true
+}

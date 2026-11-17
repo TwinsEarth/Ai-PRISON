@@ -1,0 +1,125 @@
+name: DSH Plugin Release
+
+# Release the DSH bundle shipped in dsh-plugin/. A tag push builds the six
+# platform CLIs, runs the tests and the release gate, packs the npm tarball and
+# publishes the GitHub Release assets. npm publishing stays a maintainer step
+# because the account requires interactive 2FA approval.
+on:
+  push:
+    tags: ['dsh-plugin-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release, e.g. dsh-plugin-v1.1.0'
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  package:
+    name: build and verify the DSH plugin
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build the six bundled CLIs
+        run: node dsh-plugin/scripts/build-binaries.mjs
+
+      - name: Unit and integration tests
+        working-directory: dsh-plugin
+        run: node --test test/*.test.mjs
+
+      - name: Release gate
+        working-directory: dsh-plugin
+        run: node scripts/release-check.mjs
+
+      - name: Pack the npm tarball and checksum the assets
+        id: pack
+        working-directory: dsh-plugin
+        run: |
+          set -euo pipefail
+          mkdir -p ../dist
+          npm pack --pack-destination ../dist
+          version=$(node -p "require('./package.json').version")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          cd ../dist
+          sha256sum ./*.tgz > SHA256SUMS
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-plugin-assets
+          path: |
+            dist/*.tgz
+            dist/SHA256SUMS
+            dsh-plugin/icon.svg
+            dsh-plugin/docs/preview.svg
+          retention-days: 7
+
+  release:
+    name: publish GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: dsh-plugin-assets
+          path: assets
+
+      - name: Collect assets into one directory
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find assets -type f \( -name '*.tgz' -o -name 'SHA256SUMS' -o -name '*.svg' \) -exec cp {} dist/ \;
+          ls -la dist
+
+      - name: Extract release notes from the plugin CHANGELOG
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag || github.ref_name }}"
+          version="${TAG#dsh-plugin-v}"
+          awk -v t="${version}" '
+            $0 ~ "^## \\["t"\\]" { on=1; next }
+            on && $0 ~ /^## \[/ { exit }
+            on { print }
+          ' dsh-plugin/CHANGELOG.md > RELEASE_BODY.md
+          if [ ! -s RELEASE_BODY.md ]; then
+            printf "DSH plugin release %s\n\nSee dsh-plugin/CHANGELOG.md for details.\n" "${TAG}" > RELEASE_BODY.md
+          fi
+          cat RELEASE_BODY.md
+
+      - name: Create or update the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: ${{ inputs.tag || github.ref_name }}
+          generate_release_notes: false
+          body_path: RELEASE_BODY.md
+          files: |
+            dist/*.tgz
+            dist/SHA256SUMS
+            dist/icon.svg
+            dist/preview.svg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

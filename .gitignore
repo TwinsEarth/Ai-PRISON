@@ -27,3 +27,6 @@ coverage.html
 /npm/node_modules/
 /npm/vendor/
 *.tgz
+
+# AI Prison DSH plugin: bundled platform CLIs are built by dsh-plugin/scripts/build-binaries.mjs
+/dsh-plugin/bin/

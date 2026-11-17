@@ -1,0 +1,21 @@
+# ai-prison-dsh-plugin: the AI Prison governance bundle.
+#
+# One row carries both halves: the Host half registers the six aiprison_* tools
+# and the read-only status API behind the panel, the Client half registers the
+# sidebar panel that renders the L0–L5 matrix and the audit-chain state.
+#
+# Optional config (a profile-level patch replaces this block wholesale, so
+# restate every field you want to keep):
+#
+#   config:
+#     # Absolute path to an aiprison binary. Default: the bundled build for
+#     # this platform, else `aiprison` on PATH.
+#     cliPath: ''
+#     # Durable ledger directory. Default: <session working directory>/.ai-prison
+#     dataDir: ''
+#     # Per-call timeout for the bundled CLI, milliseconds.
+#     timeoutMs: 120000
+- insert:
+    - id: ai-prison
+      name: '@twinsearth/ai-prison-dsh-plugin'
+      config: {}

@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "AI Prison",
+    "description": "Wraps the aiprison CLI as six DSH tools (levels, status, demo, drill, inspect, verify, repair-tail) and adds a sidebar panel showing the L0–L5 grading matrix together with the durable ledger's audit-chain integrity and record count. Open it from the sidebar's shield entry; the panel is read-only and never writes to the ledger. Ledgers live in <session working directory>/.ai-prison unless a data directory is configured. Every capability-removal backend (GRAM, TLM, hardware binding, MicroVM isolation) stays simulated, so the tools audit and demonstrate governance instead of enforcing real isolation.",
+    "detail": "docs/DETAIL.md"
+  }
+}
