@@ -169,6 +169,13 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
       output: stringOutput,
       async execute(args, exec) {
         const outcome = await invoke({ ctx, config, exec, subcommand: 'demo', dataDir: args?.data_dir })
+        if (!outcome.ok) {
+          const text = `${outcome.payload.stdout || ''}\n${outcome.payload.stderr || ''}`
+          if (/reopened ledger/i.test(text)) {
+            outcome.payload.hint =
+              '账本非空：demo 只能从空账本开始（CLI 会重放旧账本并拒绝重新分配已吊销的凭据）。可改用 ai_prison_drill，或清空该数据目录下的 seg-*.log 后重试。'
+          }
+        }
         return toolResult(outcome.payload)
       },
     })

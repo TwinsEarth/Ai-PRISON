@@ -33,11 +33,15 @@ panel; the six tools become visible to the Agent on the next session step.
 | `ai_prison_repair_tail` | mutates | Remove only a genuine torn tail line; refuses hard tampering. Run `ai_prison_verify` first. |
 
 The panel shows the matrix from `ai_prison_levels` data plus the ledger
-directory, integrity pill, record and file counts; it refreshes every 20 seconds
-and on demand. Below the audit-chain card sit two explicit buttons — **Run demo
-(create ledger)** and **Run recovery drill** — which call `POST
+directory, integrity pill, record/segment/file counts; it refreshes every 20
+seconds and on demand. Below the audit-chain card sit three explicit buttons —
+**Run demo (create ledger)**, **Run recovery drill**, and **Rebuild ledger
+(clear and run demo)** (two-click confirmation) — which call `POST
 /api/ai-prison/run` and therefore write the ledger only when pressed; the panel
-never writes on its own.
+never writes on its own. `demo` needs an empty ledger because the CLI replays an
+existing one and refuses to re-seed revoked credentials, so the demo button is
+disabled once segments exist and the rebuild action clears the CLI's own
+`seg-*.log` files before running it.
 
 ## Ledger directory
 

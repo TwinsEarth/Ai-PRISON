@@ -1,4 +1,5 @@
 import { resolveCli, resolveDataDir, runCli } from './cli.js'
+import { listSegments, resetLedger } from './ledger.js'
 import { buildStatus, summarizeRun } from './status.js'
 
 /**
@@ -30,14 +31,16 @@ export function resolveSessionCwd(ctx) {
   return undefined
 }
 
+const ACTIONS = new Set(['demo', 'drill', 'reset', 'reset-demo'])
+
 function jsonResponse(payload, status = 200) {
   return Response.json(payload, { status, headers: { 'cache-control': 'no-store' } })
 }
 
 /**
- * Panel API: read-only status plus the two explicit ledger actions the panel
- * offers. Actions run the bundled CLI and therefore write the ledger only when
- * the user presses the corresponding button.
+ * Panel API: read-only status plus the explicit ledger actions the panel offers.
+ * `demo` needs an empty ledger (the CLI replays an existing one and refuses to
+ * re-seed revoked credentials), so the panel offers `reset-demo` to rebuild it.
  */
 export function registerApi({ ctx, config = {}, logger } = {}) {
   if (!ctx || typeof ctx.inject !== 'function') return false
@@ -60,8 +63,7 @@ export function registerApi({ ctx, config = {}, logger } = {}) {
             const url = new URL(request.url)
             const requested = url.searchParams.get('data_dir')
             const statusConfig = requested ? { ...config, dataDir: requested } : config
-            const cwd = resolveSessionCwd(ctx)
-            const status = await buildStatus({ config: statusConfig, cwd })
+            const status = await buildStatus({ config: statusConfig, cwd: resolveSessionCwd(ctx) })
             return jsonResponse(status)
           } catch (error) {
             return jsonResponse({ ok: false, error: String((error && error.message) || error) }, 500)
@@ -84,18 +86,50 @@ export function registerApi({ ctx, config = {}, logger } = {}) {
             body = {}
           }
           const action = String(body?.action ?? '')
-          if (action !== 'demo' && action !== 'drill') {
-            return jsonResponse({ ok: false, error: 'action must be "demo" or "drill"' }, 400)
+          if (!ACTIONS.has(action)) {
+            return jsonResponse({ ok: false, error: 'action must be one of demo, drill, reset, reset-demo' }, 400)
           }
           const resolved = resolveCli({ config })
-          if (!resolved.path) {
-            return jsonResponse({ ok: false, error: resolved.missing, reason: 'cli-missing' }, 409)
-          }
           const cwd = resolveSessionCwd(ctx) || process.cwd()
           const requested = typeof body?.data_dir === 'string' && body.data_dir ? body.data_dir : undefined
           const dataDir = requested ? requested : resolveDataDir({ config, cwd })
+
+          let removed = []
+          if (action === 'reset' || action === 'reset-demo') {
+            const reset = resetLedger(dataDir)
+            if (!reset.ok) {
+              return jsonResponse({ ok: false, action, dataDir, error: reset.error || 'reset failed' }, 500)
+            }
+            removed = reset.removed
+            if (action === 'reset') {
+              return jsonResponse({
+                ok: true,
+                action,
+                dataDir,
+                removed,
+                summary: `已清空 ${removed.length} 个账本段`,
+              })
+            }
+          }
+
+          if (!resolved.path) {
+            return jsonResponse({ ok: false, error: resolved.missing, reason: 'cli-missing' }, 409)
+          }
           const timeoutMs = Number(config.timeoutMs) > 0 ? Number(config.timeoutMs) : 120_000
-          const result = await runCli(['--data-dir', dataDir, action], {
+          const runAction = action === 'reset-demo' ? 'demo' : action
+          if (runAction === 'demo' && listSegments(dataDir).length > 0) {
+            return jsonResponse(
+              {
+                ok: false,
+                action,
+                dataDir,
+                error: 'ledger-not-empty',
+                hint: '账本已有记录：demo 需要空账本。请点「重置账本并重建」，或改用「运行恢复演练」。',
+              },
+              409,
+            )
+          }
+          const result = await runCli(['--data-dir', dataDir, runAction], {
             bin: resolved.path,
             cwd,
             timeoutMs: Math.max(timeoutMs, 180_000),
@@ -105,9 +139,10 @@ export function registerApi({ ctx, config = {}, logger } = {}) {
             action,
             dataDir,
             cwd,
+            removed,
             exitCode: result.exitCode,
             timedOut: result.timedOut === true,
-            summary: summarizeRun(action, result),
+            summary: summarizeRun(runAction, result),
             stdout: result.stdout,
             stderr: result.stderr,
           })

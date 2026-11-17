@@ -1,6 +1,7 @@
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { describeCli, resolveCli, resolveDataDir, runCli } from './cli.js'
 import { parseLevels } from './levels.js'
+import { listSegments } from './ledger.js'
 
 const MAX_DETAIL = 600
 
@@ -17,7 +18,7 @@ function firstLines(text, count = 3) {
 /** Read the durable ledger's integrity through `aiprison verify`. */
 export async function inspectLedger({ bin, dataDir, timeoutMs } = {}) {
   if (!dataDir || !existsSync(dataDir)) {
-    return { dir: dataDir || null, exists: false, integrity: 'none', records: null, detail: '', files: 0 }
+    return { dir: dataDir || null, exists: false, integrity: 'none', records: null, detail: '', files: 0, segments: 0, canDemo: true }
   }
   let files = 0
   try {
@@ -25,6 +26,7 @@ export async function inspectLedger({ bin, dataDir, timeoutMs } = {}) {
   } catch {
     files = 0
   }
+  const segments = listSegments(dataDir).length
   const result = await runCli(['--data-dir', dataDir, 'verify'], { bin, timeoutMs })
   const text = result.ok ? result.stdout : `${result.stdout}\n${result.stderr}`
   if (result.ok) {
@@ -36,6 +38,8 @@ export async function inspectLedger({ bin, dataDir, timeoutMs } = {}) {
       records: records ? Number(records[1]) : null,
       detail: firstLines(text, 1),
       files,
+      segments,
+      canDemo: segments === 0,
     }
   }
   return {
@@ -45,6 +49,8 @@ export async function inspectLedger({ bin, dataDir, timeoutMs } = {}) {
     records: null,
     detail: firstLines(text, 3) || (result.timedOut ? 'verify timed out' : 'verify failed'),
     files,
+    segments,
+    canDemo: segments === 0,
   }
 }
 

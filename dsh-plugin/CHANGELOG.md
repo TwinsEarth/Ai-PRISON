@@ -2,6 +2,28 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.1.3] — 2026-11-18
+
+### Added
+
+- **Ledger rebuild action**: the panel now has **Rebuild ledger (clear and run
+  demo)** with a two-click confirmation, backed by `action: "reset-demo"` on
+  `POST /api/ai-prison/run`. It deletes only the CLI's own `seg-*.log` files in
+  the ledger directory and then runs the demo, so a used ledger can be rebuilt
+  without shell access. The stale `segments` count is shown too.
+- `ai_prison_demo` now attaches a `hint` when the CLI refuses because the ledger
+  is not empty.
+
+### Fixed
+
+- **Run demo on a non-empty ledger**: the CLI replays an existing ledger and then
+  refuses to re-seed credentials that are already in the revocation set, so
+  pressing **Run demo** after any records existed failed with
+  `seed allocate: … credential … is present in the global revocation set`.
+  The panel now disables that button when the ledger has segments, explains why,
+  and offers the rebuild action instead; the Host route also pre-checks and
+  answers `ledger-not-empty` with the same guidance.
+
 ## [1.1.2] — 2026-11-18
 
 ### Fixed
