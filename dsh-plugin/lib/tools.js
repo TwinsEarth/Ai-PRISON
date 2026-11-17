@@ -14,17 +14,40 @@ export function bounded(result, { lines = TAIL_LINES, max = MAX_TEXT } = {}) {
   return clipped.length > max ? `${clipped.slice(-max)}…[截断]` : clipped
 }
 
-function cwdOf(ctx, exec) {
+/**
+ * The session a tool call belongs to. `workingDirectory.get` expects a Session,
+ * not the Agent id the execution context carries, so map it through `sessions`.
+ */
+export function resolveToolCwd(ctx, exec) {
+  const get = (key) => (ctx && typeof ctx.get === 'function' ? ctx.get(key) : undefined)
   try {
-    const wd = ctx && typeof ctx.get === 'function' ? ctx.get('workingDirectory') : undefined
-    const fromService = wd && typeof wd.get === 'function' && exec && exec.agent ? wd.get(exec.agent) : undefined
-    if (typeof fromService === 'string' && fromService) return fromService
-    if (wd && typeof wd.defaultDirectory === 'string' && wd.defaultDirectory) return wd.defaultDirectory
+    const sessions = get('sessions')
+    const workingDirectory = get('workingDirectory')
+    const agent = exec && exec.agent
+    let session
+    if (sessions && typeof sessions.get === 'function' && agent && agent.id) {
+      session = sessions.get(agent.id)
+    }
+    if (session && workingDirectory && typeof workingDirectory.get === 'function') {
+      try {
+        const dir = workingDirectory.get(session)
+        if (typeof dir === 'string' && dir) return dir
+      } catch {
+        // Fall through to the session's original directory.
+      }
+    }
+    const headerCwd = session && session.header ? session.header.cwd : undefined
+    if (typeof headerCwd === 'string' && headerCwd) return headerCwd
+    if (workingDirectory && typeof workingDirectory.defaultDirectory === 'string' && workingDirectory.defaultDirectory) {
+      return workingDirectory.defaultDirectory
+    }
   } catch {
-    // A profile without workingDirectory still runs the CLI in the host cwd.
+    // A profile without sessions or workingDirectory runs the CLI in the host cwd.
   }
   return process.cwd()
 }
+
+const cwdOf = (ctx, exec) => resolveToolCwd(ctx, exec)
 
 function parametersOf(config) {
   const timeout = Number(config && config.timeoutMs) > 0 ? Number(config.timeoutMs) : 120_000

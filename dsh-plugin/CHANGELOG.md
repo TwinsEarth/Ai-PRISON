@@ -2,6 +2,18 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.1.2] — 2026-11-18
+
+### Fixed
+
+- **Tool ledger default**: `workingDirectory.get` expects a `Session`, but the
+  tool execution context only carries an Agent id, so the lookup threw and every
+  `ai_prison_*` tool fell back to the Host launch directory
+  (`…/.dsh/profiles/desktop/.ai-prison`). The tools now resolve the Session
+  through `ctx.sessions.get(agent.id)`, then its effective directory, then its
+  original header `cwd`, and only then the Host default. Ledgers therefore land
+  in the session workspace by default, matching the panel.
+
 ## [1.1.1] — 2026-11-18
 
 ### Added
