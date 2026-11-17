@@ -2,6 +2,25 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.2.1] — 2026-11-18
+
+### Fixed
+
+- **Watchdog row crashed before its sampler started**: `readCrashLogs()` ran during
+  setup and called `persist()` while `let lastFlush` was still in its temporal dead
+  zone, so the row threw a `ReferenceError` after recording crash history but before
+  registering the sampler, the operation listener and the status route. The value is now
+  declared before the first scan, `readCrashLogs` is wrapped defensively, and the
+  runtime exposes a `dispose()` used by tests.
+- Watchdog state directory and crash-log directory are now injectable
+  (`config.dataDir` / `config.logsDir`) so runtime tests stay hermetic.
+
+### Tests
+
+- New `test/watchdog-runtime.test.mjs`: heap sampling, crash-fixture parsing and
+  persistence, plugin-operation counting/estimation, failed-operation and removal
+  handling, all against temporary directories.
+
 ## [1.2.0] — 2026-11-18
 
 ### Added — P0 memory watchdog (observe mode)

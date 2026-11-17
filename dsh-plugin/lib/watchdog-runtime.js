@@ -53,7 +53,8 @@ function readHead(file, bytes) {
 /** Read-only watchdog runtime. It observes; it never enables or disables plugins. */
 export function createWatchdog(ctx, config = {}, logger = {}) {
   const profileDir = resolveProfileDir()
-  const dataDir = path.join(profileDir, '.ai-prison-watchdog')
+  const dataDir = config.dataDir ? path.resolve(String(config.dataDir)) : path.join(profileDir, '.ai-prison-watchdog')
+  const logsDir = config.logsDir ? path.resolve(String(config.logsDir)) : resolveLogsDir()
   const stateFile = path.join(dataDir, 'state.json')
   const incidentsFile = path.join(dataDir, 'incidents.jsonl')
   const log = {
@@ -72,6 +73,13 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
   watchdogState.dataDir = dataDir
   watchdogState.config = { sampleMs: SAMPLE_MS, ...config }
   watchdogState.lastCrashScan = 0
+  let lastFlush = 0
+  const cleanups = []
+  const effect = (fn, label) => {
+    const disposer = ctx.effect(fn, label)
+    if (typeof disposer === 'function') cleanups.push(disposer)
+    return disposer
+  }
 
   restoreState()
   readCrashLogs()
@@ -107,7 +115,6 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     return record
   }
 
-  let lastFlush = 0
   function persist(force = false) {
     const now = Date.now()
     if (!force && now - lastFlush < FLUSH_MS) return
@@ -224,7 +231,6 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
   }
 
   function readCrashLogs() {
-    const logsDir = resolveLogsDir()
     let entries
     try {
       entries = fs.readdirSync(logsDir, { withFileTypes: true })
@@ -264,9 +270,10 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
   // Sampler (P0: observe only).
   try {
     if (typeof ctx.effect === 'function') {
-      ctx.effect(() => {
+      effect(() => {
         sample()
-        const timer = setInterval(sample, SAMPLE_MS)
+        const interval = Number(config.sampleMs) > 0 ? Number(config.sampleMs) : SAMPLE_MS
+        const timer = setInterval(sample, interval)
         return () => clearInterval(timer)
       }, 'ai-prison-watchdog: sampler')
     } else {
@@ -281,7 +288,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
   try {
     if (typeof ctx.on === 'function') {
       if (typeof ctx.effect === 'function') {
-        ctx.effect(() => ctx.on('plugin-manager/operation', onOperation), 'ai-prison-watchdog: operations')
+        effect(() => ctx.on('plugin-manager/operation', onOperation), 'ai-prison-watchdog: operations')
       } else {
         ctx.on('plugin-manager/operation', onOperation)
       }
@@ -320,6 +327,16 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     snapshot: watchdogSnapshot,
     sample,
     readCrashLogs,
+    dispose() {
+      while (cleanups.length > 0) {
+        const disposer = cleanups.pop()
+        try {
+          disposer()
+        } catch {
+          // ignore dispose races
+        }
+      }
+    },
   }
 }
 
