@@ -80,3 +80,16 @@ export function statusSummary(status) {
     : `账本 ${status.ledger.dir}：尚未初始化`
   return [cliLine, ledgerLine, `分级矩阵：${status.levels.length} 级`].join('\n')
 }
+
+/** One-line outcome for a panel action (`demo` or `drill`). */
+export function summarizeRun(action, result) {
+  if (result && result.timedOut) return `超时：${action} 超过时间上限`
+  const lines = `${(result && result.stdout) || ''}\n${(result && result.stderr) || ''}`
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const picked = lines.filter((line) => /OVERALL|已落盘|INTEGRITY|记录数|段数|最终运行状态|恢复令/.test(line)).slice(-4)
+  const detail = (picked.length > 0 ? picked : lines.slice(-2)).join(' · ').slice(0, 500)
+  if (result && result.ok) return detail || `${action} 完成`
+  return `失败（exit ${result ? result.exitCode : '?'}）：${detail || 'no output'}`
+}

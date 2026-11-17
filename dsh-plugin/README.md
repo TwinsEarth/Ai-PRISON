@@ -34,13 +34,18 @@ panel; the six tools become visible to the Agent on the next session step.
 
 The panel shows the matrix from `ai_prison_levels` data plus the ledger
 directory, integrity pill, record and file counts; it refreshes every 20 seconds
-and on demand. It is strictly read-only.
+and on demand. Below the audit-chain card sit two explicit buttons — **Run demo
+(create ledger)** and **Run recovery drill** — which call `POST
+/api/ai-prison/run` and therefore write the ledger only when pressed; the panel
+never writes on its own.
 
 ## Ledger directory
 
-Default: `<session working directory>/.ai-prison`, so the audit trail stays next
-to the project it governs. Override with a tool argument (`data_dir`) or with the
-plugin config:
+Default for tools: `<session working directory>/.ai-prison`, so the audit trail
+stays next to the project it governs. The panel resolves the most recent live
+Session's effective directory for the same reason (a Fetch route carries no
+Agent of its own). Override with a tool argument (`data_dir`) or with the plugin
+config:
 
 ```yaml
 - id: ai-prison
@@ -80,8 +85,8 @@ the release check, packs the npm tarball and publishes the GitHub Release assets
 
 - Backends are simulations: no real isolation, revocation distribution,
   hardware binding or capability removal happens.
-- The plugin never writes the ledger from the panel or from status calls; only
-  `demo`, `drill` and `repair-tail` mutate it.
+- The plugin never writes the ledger from status calls; only the two explicit
+  panel buttons and the `demo`, `drill` and `repair-tail` tools mutate it.
 - A wrong `data_dir` reveals that directory's integrity state only; the plugin
   reads and checks, it does not repair anything except the torn tail the CLI
   itself accepts.

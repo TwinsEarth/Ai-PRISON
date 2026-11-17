@@ -11,7 +11,7 @@ const market = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'market/index.js
 
 test('manifest declares the bundle, the client half and the version gates', () => {
   assert.equal(pkg.name, '@twinsearth/ai-prison-dsh-plugin')
-  assert.equal(pkg.version, '1.1.0')
+  assert.match(pkg.version, /^\d+\.\d+\.\d+$/)
   assert.equal(pkg.type, 'module')
   assert.deepEqual(pkg.dsh.bundle, { patch: './cordis.patch.yml' })
   assert.equal(pkg.dsh.client.platform, 'web')

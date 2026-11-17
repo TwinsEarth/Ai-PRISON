@@ -10,6 +10,7 @@ window.__ModuleLoader__.load({
     const PANEL_ID = 'ai-prison'
     const NS = 'ai-prison'
     const STATUS_URL = 'api/ai-prison/status'
+    const RUN_URL = 'api/ai-prison/run'
 
     const DICTS = {
       en: {
@@ -37,8 +38,14 @@ window.__ModuleLoader__.load({
         'cli.source': 'Source',
         'action.refresh': 'Refresh',
         'action.loading': 'Reading…',
+        'action.runDemo': 'Run demo (create ledger)',
+        'action.runDrill': 'Run recovery drill',
+        'action.running': 'Running…',
+        'ledger.actions': 'Explicit actions',
+        'ledger.actionsHint': 'These buttons run the bundled CLI and write the ledger; the panel never writes on its own.',
+        'ledger.lastAction': 'Last action',
         'meta.updated': 'Updated {time}',
-        'meta.readonly': 'Read-only view: this panel never writes to the ledger.',
+        'meta.readonly': 'Read-only view: the panel never writes by itself; only the buttons above do.',
         'error.title': 'Cannot read the status',
         'error.hint': 'Check that the bundle is enabled and the aiprison CLI resolves for this platform.',
       },
@@ -67,8 +74,14 @@ window.__ModuleLoader__.load({
         'cli.source': '来源',
         'action.refresh': '刷新',
         'action.loading': '读取中…',
+        'action.runDemo': '运行 demo（创建账本）',
+        'action.runDrill': '运行恢复演练',
+        'action.running': '运行中…',
+        'ledger.actions': '显式操作',
+        'ledger.actionsHint': '这些按钮会运行内置 CLI 并写入账本；面板本身不会自动写入。',
+        'ledger.lastAction': '最近操作',
         'meta.updated': '更新于 {time}',
-        'meta.readonly': '只读视图：本面板不会写入数据目录。',
+        'meta.readonly': '只读视图：面板不会自行写入账本，只有上方按钮会写入。',
         'error.title': '无法读取状态',
         'error.hint': '请确认插件已启用，且本平台能解析到 aiprison CLI。',
       },
@@ -151,6 +164,15 @@ window.__ModuleLoader__.load({
       },
       error: { color: '#c81e1e' },
       ok: { color: '#15803d' },
+      actionBtn: {
+        padding: '5px 12px',
+        borderRadius: 7,
+        border: '1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.16))',
+        background: 'transparent',
+        color: 'inherit',
+        cursor: 'pointer',
+        fontSize: 12,
+      },
     }
 
     function PrisonIcon({ size = 36, active = true }) {
@@ -190,6 +212,22 @@ window.__ModuleLoader__.load({
       })
     }
 
+    /** Run one explicit ledger action through the Host half. */
+    function postRun(action) {
+      return fetch(new URL(RUN_URL, document.baseURI), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ action }),
+      }).then(async (response) => {
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok || payload.ok !== true) {
+          throw new Error(payload.error || payload.summary || `HTTP ${response.status}`)
+        }
+        return payload
+      })
+    }
+
     function MatrixCard({ levels }) {
       if (!Array.isArray(levels) || levels.length === 0) {
         return h('section', { style: C.card }, h('div', { style: C.cardHead }, t('matrix.title')), h('p', { style: { ...C.muted, margin: 0, fontSize: 12 } }, t('matrix.empty')))
@@ -224,7 +262,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function LedgerCard({ ledger }) {
+    function LedgerCard({ ledger, cliFound, busy, onAction, lastResult }) {
       const exists = Boolean(ledger && ledger.exists)
       const integrityTone = !exists ? 'none' : ledger.integrity === 'ok' ? 'ok' : 'error'
       const integrityText = !exists ? t('integrity.none') : ledger.integrity === 'ok' ? t('integrity.ok') : t('integrity.failed')
@@ -239,6 +277,7 @@ window.__ModuleLoader__.load({
       if (exists && ledger.detail) {
         entries.push({ key: 'detail', label: t('ledger.detail'), value: h('span', { style: { ...C.mono, wordBreak: 'break-word' } }, ledger.detail) })
       }
+      const disabled = Boolean(busy) || !cliFound
       return h(
         'section',
         { style: C.card },
@@ -252,6 +291,36 @@ window.__ModuleLoader__.load({
           ]),
         ),
         !exists ? h('p', { style: { ...C.muted, fontSize: 12, margin: '8px 0 0' } }, t('ledger.empty')) : null,
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 } },
+          h(
+            'button',
+            { type: 'button', style: C.actionBtn, disabled, onClick: () => onAction('demo') },
+            busy === 'demo' ? t('action.running') : t('action.runDemo'),
+          ),
+          h(
+            'button',
+            { type: 'button', style: C.actionBtn, disabled, onClick: () => onAction('drill') },
+            busy === 'drill' ? t('action.running') : t('action.runDrill'),
+          ),
+          h('span', { style: { ...C.muted, fontSize: 11.5 } }, t('ledger.actionsHint')),
+        ),
+        lastResult
+          ? h(
+              'p',
+              {
+                style: {
+                  ...C.mono,
+                  fontSize: 11.5,
+                  margin: '8px 0 0',
+                  color: lastResult.ok ? C.ok.color : C.error.color,
+                  wordBreak: 'break-word',
+                },
+              },
+              `${t('ledger.lastAction')}: ${lastResult.action} — ${lastResult.summary}`,
+            )
+          : null,
       )
     }
 
@@ -260,6 +329,8 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState(null)
       const [loading, setLoading] = React.useState(true)
       const [updated, setUpdated] = React.useState(null)
+      const [busy, setBusy] = React.useState(null)
+      const [lastResult, setLastResult] = React.useState(null)
 
       const load = React.useCallback(() => {
         setLoading(true)
@@ -281,6 +352,24 @@ window.__ModuleLoader__.load({
         const timer = setInterval(load, 20000)
         return () => clearInterval(timer)
       }, [load])
+
+      const runAction = React.useCallback(
+        (action) => {
+          setBusy(action)
+          setLastResult(null)
+          postRun(action)
+            .then((payload) => {
+              setLastResult({ action, ok: true, summary: payload.summary || '' })
+              setBusy(null)
+              load()
+            })
+            .catch((cause) => {
+              setLastResult({ action, ok: false, summary: String((cause && cause.message) || cause) })
+              setBusy(null)
+            })
+        },
+        [load],
+      )
 
       const cli = data?.cli
       const cliText = cli && cli.found ? t('cli.found', { version: cli.version || '?' }) : t('cli.missing')
@@ -307,7 +396,13 @@ window.__ModuleLoader__.load({
             )
           : null,
         h(MatrixCard, { levels: data?.levels }),
-        h(LedgerCard, { ledger: data?.ledger }),
+        h(LedgerCard, {
+          ledger: data?.ledger,
+          cliFound: Boolean(cli && cli.found),
+          busy,
+          onAction: runAction,
+          lastResult,
+        }),
         h(
           'p',
           { style: { ...C.muted, fontSize: 12, margin: '2px 0 0', display: 'flex', gap: 12, flexWrap: 'wrap' } },

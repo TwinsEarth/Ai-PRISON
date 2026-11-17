@@ -75,9 +75,12 @@ test('the client bundle registers the sidebar entry and the main panel', async (
   assert.ok(effects.length >= 2, 'slot registrations are effect-owned for disposal')
 })
 
-test('the client bundle reads the status API with same-origin credentials', async () => {
+test('the client bundle reads the status API and posts the two ledger actions', async () => {
   const source = (await import('node:fs')).readFileSync(clientFile, 'utf8')
   assert.match(source, /api\/ai-prison\/status/)
+  assert.match(source, /api\/ai-prison\/run/)
+  assert.match(source, /action\.runDemo/)
+  assert.match(source, /action\.runDrill/)
   assert.match(source, /credentials: 'same-origin'/)
   assert.doesNotMatch(source, /document\.body\.appendChild/)
   assert.doesNotMatch(source, /<script/)

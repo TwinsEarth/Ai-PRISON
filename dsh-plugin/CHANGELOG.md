@@ -2,6 +2,24 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.1.1] — 2026-11-18
+
+### Added
+
+- **Panel actions**: the audit-chain card now has **Run demo (create ledger)** and
+  **Run recovery drill** buttons plus a last-action line. They call the new
+  `POST /api/ai-prison/run` Host route (authenticated through
+  `ctx.connection.fetch`), which runs the bundled CLI with the resolved ledger
+  directory; the panel itself still never writes on its own.
+
+### Fixed
+
+- **Panel ledger directory**: the status route resolved `process.cwd()` (the
+  profile directory, e.g. `…/.dsh/profiles/desktop/.ai-prison`) because a Fetch
+  route carries no Agent. It now resolves the most recent live Session's
+  effective directory through `ctx.sessions` + `ctx.workingDirectory`, so the
+  panel and its action buttons use the session workspace by default.
+
 ## [1.1.0] — 2026-11-17
 
 First release: the AI Prison governance prototype as a DeepSeek Harness bundle.
