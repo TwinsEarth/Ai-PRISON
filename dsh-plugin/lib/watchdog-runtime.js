@@ -10,6 +10,7 @@ import { createTamperMonitor } from './tamper-monitor.js'
 import { remediationFor } from './remediation.js'
 import { notify } from './notifier.js'
 import { startRssScannerV2 } from './rss-scan.js'
+import { createBootWatch } from './boot-watch.js'
 import {
   attributeCrash,
   classifyWaterline,

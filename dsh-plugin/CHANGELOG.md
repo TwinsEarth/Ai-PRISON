@@ -2,6 +2,16 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.6.1] — 2026-11-19
+
+### Fixed
+- 1.6.0 shipped `watchdog-runtime.js` calling `createBootWatch` without importing
+  `./boot-watch.js`, so the watchdog degraded with "createBootWatch is not defined"
+  and the startup watch never started. The import is restored and a regression
+  test (`test/watchdog-imports.test.mjs`) now asserts every helper module the
+  runtime calls is imported.
+
+## [1.6.0] — 2026-11-18
 ## [1.6.0] — 2026-11-18
 
 ### Added — startup watchdog, safe boot and panel 6 GB control
