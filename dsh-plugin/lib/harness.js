@@ -8,10 +8,17 @@ import { pathToFileURL } from 'node:url'
  * candidate is tried with createRequire because module resolution inside an asar
  * only works in the Electron-as-Node runtime that launched DSH.
  */
-export function installationAnchors({ execPath = process.execPath, env = process.env } = {}) {
+export function installationAnchors({ execPath = process.execPath, env = process.env, argv = process.argv } = {}) {
   const dir = path.dirname(execPath)
+  // The desktop host may run on the bundled Node (real 6 GB heap) with the
+  // runtime extracted to disk. Then execPath no longer sits next to the app and
+  // the installation root arrives as DSH_INSTALL_DIR or as the host's second
+  // argument (after the entry module).
+  const argvRoot = typeof argv[2] === 'string' && argv[2].endsWith('package.json') === false ? argv[2] : undefined
   return [
     env.DSH_APP_ANCHOR,
+    env.DSH_INSTALL_DIR ? path.join(env.DSH_INSTALL_DIR, 'package.json') : undefined,
+    argvRoot && path.basename(argvRoot) === 'dsh' ? path.join(argvRoot, 'package.json') : undefined,
     path.join(dir, 'resources', 'app.asar', 'dsh', 'package.json'),
     path.join(dir, 'resources', 'app', 'dsh', 'package.json'),
     path.join(dir, '..', 'Resources', 'app.asar', 'dsh', 'package.json'),

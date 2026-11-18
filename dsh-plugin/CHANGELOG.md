@@ -2,6 +2,21 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.4.1] — 2026-11-18
+
+### Fixed — tools vanished after switching the host to the real-Node runtime
+
+- `lib/harness.js` resolved `@deepseek-ai/dsh-tools` only from paths next to
+  `process.execPath`. When the desktop host runs on the bundled Node with the
+  runtime extracted to `resources/dsh-runtime/dsh`, `execPath` no longer sits
+  next to the app, so `defineTool` was unavailable and `ai_prison_*` tools were
+  never registered (the watchdog row kept running).
+- `installationAnchors` now also checks `DSH_INSTALL_DIR` and the host's second
+  argument (the runtime root) before the legacy desktop paths.
+- New `test/harness.test.mjs` covers extracted-runtime, argument fallback and
+  Electron-as-Node layouts.
+
+## [1.4.0] — 2026-11-18
 ## [1.4.0] — 2026-11-18
 
 ### Added — P2 crash enforcement + per-plugin budgets, P3 external guard
