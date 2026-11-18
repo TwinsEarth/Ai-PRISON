@@ -2,6 +2,15 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.5.3] — 2026-11-18
+
+### Fixed — CI
+
+- The RSS scanner tests exercise a Windows-only code path; they now skip on the
+  ubuntu release runner instead of failing there. The parser test still runs on
+  every platform.
+
+## [1.5.2] — 2026-11-18
 ## [1.5.2] — 2026-11-18
 
 ### Fixed — child RSS scan is observable and prefers the Host subprocess service

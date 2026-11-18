@@ -47,7 +47,7 @@ function makeScanner(spawn) {
   return { scanner, watchdogState, incidents, refs }
 }
 
-test('successful scan records matched RSS and stats', async () => {
+test('successful scan records matched RSS and stats', { skip: process.platform !== 'win32' }, async () => {
   const spawn = () =>
     fakeChild((child) => {
       child.stdout.emit('data', '111|1048576|node.exe C:\\prof\\desktop\\node_modules\\@a\\b\\worker.exe')
@@ -65,7 +65,7 @@ test('successful scan records matched RSS and stats', async () => {
   }
 })
 
-test('a failed scan is recorded and reported once', async () => {
+test('a failed scan is recorded and reported once', { skip: process.platform !== 'win32' }, async () => {
   const spawn = () =>
     fakeChild((child) => {
       child.stderr.emit('data', 'Access denied')
