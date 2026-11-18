@@ -2,6 +2,32 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.6.0] — 2026-11-18
+
+### Added — startup watchdog, safe boot and panel 6 GB control
+
+- **bootWatch**: 500 ms heap sampling from watchdog activation to the clean
+  baseline, written to `.ai-prison-watchdog/run-<start>.jsonl` (last 5 kept) so a
+  post-crash boot or the guard can inspect the curve even when the host died.
+- **Startup thresholds**: growth > 150 MB/s or total > 2.0 GB (4 GB host) /
+  > 3.0 GB (6 GB host) writes a safe-boot plan (base + web-app + ai-prison) and
+  records a `startup-memory` incident; the guard enforces it on next launch.
+- **Guard v2**: startup-phase OOM in the newest crash log forces that safe boot,
+  moves the ai-prison bundle to position 2, applies pending-boot plans, updates
+  the 6 GB heap patch from a flag file, and logs the last startup curve.
+- **Panel 6 GB control**: the Enforcement card can request/cancel "6 GB heap on
+  next launch"; the request is a flag file the guard consumes.
+- **Safer defaults**: RSS child scan and automatic budget probes are now **off**
+  unless explicitly enabled (`rssScan: true`, `probeAuto: true`); notifications
+  stay off. This also removes the 1.5.x periodic subprocess spawns from startup.
+- `ai_prison_watchdog_status` now reports `boot` (run file, peak, trigger) and
+  `heap6g`.
+
+### Note
+- The panel heap toggle only takes effect on the next launch through the guard,
+  because the archive is locked while DSH runs.
+
+## [1.5.4] — 2026-11-18
 ## [1.5.4] — 2026-11-18
 
 ### Fixed — RSS diagnostics were invisible

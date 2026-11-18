@@ -429,6 +429,16 @@ window.__ModuleLoader__.load({
         if (prompt && !window.confirm(prompt)) return
         postWatchdogAction(name, target).then(() => refresh()).catch(() => refresh())
       }
+      const toggleHeap6g = (enabled) => {
+        fetch(new URL(WATCHDOG_ACTION_URL, document.baseURI), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify({ action: 'heap6g', enabled }),
+        })
+          .then(() => refresh())
+          .catch(() => refresh())
+      }
       const frozen = Boolean(watchdog.frozenAt) || watchdog.waterline === 'frost'
       const paused = Boolean(watchdog.pausedAt) || watchdog.waterline === 'pause'
       const grace = Number.isFinite(watchdog.graceUntil) && Date.now() < watchdog.graceUntil
@@ -481,6 +491,10 @@ window.__ModuleLoader__.load({
         ),
         watchdog.baseline ? h('p', { style: { ...C.muted, fontSize: 11.5, margin: '10px 0 0' } }, t('watchdog.baseline', { at: watchdog.baseline.at })) : null,
         watchdog.tamper ? h('p', { style: { ...C.muted, fontSize: 11.5, margin: '6px 0 0' } }, t('watchdog.tamper', { n: (watchdog.tamper.files || []).length, at: watchdog.tamper.lastCheckAt || '—', policy: watchdog.tamper.policy || '' })) : null,
+        h('div', { style: { marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
+          h('button', { style: button, onClick: () => toggleHeap6g(!watchdog.heap6g) }, watchdog.heap6g ? t('watchdog.heap6gOn') : t('watchdog.heap6gOff')),
+          watchdog.heap6g ? h('span', { style: { ...C.muted, fontSize: 11.5 } }, t('watchdog.heap6gPending')) : null,
+        ),
         h('div', { style: { marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
           h('button', { style: { ...button, padding: '5px 10px', opacity: frozen ? 0.5 : 1 }, disabled: frozen, title: frozen ? t('watchdog.measureBlocked') : undefined, onClick: () => { if (!frozen) act('probe') } }, t('watchdog.measure')),
           watchdog.probeProgress ? h('span', { style: { ...C.mono, fontSize: 11.5 } }, `${watchdog.probeProgress.done || 0}/${watchdog.probeProgress.total || 0}`) : null,

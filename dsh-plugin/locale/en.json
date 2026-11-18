@@ -21,5 +21,8 @@
   "watchdog.measure": "Measure plugin budgets now",
   "watchdog.measureBlocked": "Heap is frozen: measuring spawns child processes, so it stays disabled until the heap recovers.",
   "prison.rss": "Child RSS",
-  "prison.plugin": "Plugin"
+  "prison.plugin": "Plugin",
+  "watchdog.heap6gOff": "Request 6 GB heap on next launch",
+  "watchdog.heap6gOn": "Cancel the 6 GB heap request",
+  "watchdog.heap6gPending": "Guard will apply it on next launch (the app must be closed)."
 }

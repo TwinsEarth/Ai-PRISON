@@ -21,5 +21,8 @@
   "watchdog.measure": "立即测量插件预算",
   "watchdog.measureBlocked": "堆已冻结：测量会启动子进程，恢复前暂停测量。",
   "prison.rss": "子进程 RSS",
-  "prison.plugin": "插件"
+  "prison.plugin": "插件",
+  "watchdog.heap6gOff": "请求下次启动使用 6GB 堆",
+  "watchdog.heap6gOn": "取消 6GB 堆请求",
+  "watchdog.heap6gPending": "下次由 AI Prison Guard 启动时应用（需完全退出 DSH）。"
 }

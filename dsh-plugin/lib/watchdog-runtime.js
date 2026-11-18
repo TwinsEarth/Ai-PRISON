@@ -136,6 +136,8 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
   watchdogState.config = { sampleMs: SAMPLE_MS, ...config }
   watchdogState.crashFallback = config.crashFallback === 'dry-run' ? 'dry-run' : 'enforce'
   watchdogState.probeStarted = false
+  watchdogState.boot = null
+  watchdogState.heap6g = false
   watchdogState.lastCrashScan = 0
   watchdogState.baseline = null
   for (const plan of watchdogState.plans) plan.applied = false
@@ -148,6 +150,23 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
   let tamper = null
   restoreState()
   readCrashLogs()
+  let bootWatch = null
+  try {
+    bootWatch = createBootWatch({
+      dataDir,
+      watchdogState,
+      onTrigger: (trigger) => {
+        appendIncident({ kind: 'startup-memory', detail: '启动期内存失控：' + trigger.reason, rateMBps: trigger.rateMBps, totalMB: trigger.totalMB })
+        writePendingBoot({ level: 'L3', reason: 'startup-memory', safeBoot: true, disable: [], keep: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@twinsearth/ai-prison-dsh-plugin'] })
+      },
+      onFinish: (summary) => {
+        watchdogState.boot = summary
+      },
+    })
+    watchdogState.boot = bootWatch.summary()
+  } catch (error) {
+    watchdogState.degraded = 'boot watch: ' + String((error && error.message) || error)
+  }
   setupTamperMonitor()
 
   function setupTamperMonitor() {
@@ -263,7 +282,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
   }
 
   function startRssScanner() {
-    if (rssTimer || process.platform !== 'win32' || watchdogState.config.rssScan === false) return
+    if (rssTimer || process.platform !== 'win32' || watchdogState.config.rssScan !== true) return
     const timer = setTimeout(scanChildRss, 5000)
     if (typeof timer.unref === 'function') timer.unref()
     rssTimer = setInterval(scanChildRss, RSS_INTERVAL_MS)
@@ -816,12 +835,17 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       ctx.inject(['pluginManager'], (child) => {
         refs.manager = child.pluginManager || (typeof child.get === 'function' ? child.get('pluginManager') : null)
         if (refs.manager) {
+          if (bootWatch && typeof refs.manager.listBundles === 'function') {
+            void refs.manager.listBundles().then((rows) => bootWatch.setBundleCount(rows.length)).catch(() => {})
+          }
           void reapplyQuarantine()
           startRssScannerV2({ ctx, refs, profileDir, watchdogState, appendIncident, exemptTargets: EXEMPT_TARGETS })
-          const probeTimer = setTimeout(() => {
-            void scheduleProbe()
-          }, Number(config.probeDelayMs) > 0 ? Number(config.probeDelayMs) : 30_000)
-          if (typeof probeTimer.unref === 'function') probeTimer.unref()
+          if (config.probeAuto === true) {
+            const probeTimer = setTimeout(() => {
+              void scheduleProbe()
+            }, Number(config.probeDelayMs) > 0 ? Number(config.probeDelayMs) : 30_000)
+            if (typeof probeTimer.unref === 'function') probeTimer.unref()
+          }
         }
       })
     }
@@ -909,6 +933,19 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
                   }
                   const action = typeof body.action === 'string' ? body.action : ''
                   const target = typeof body.target === 'string' ? body.target : ''
+                  if (action === 'heap6g') {
+                    const enabled = body.enabled === true
+                    const flagPath = path.join('E:/ToFuture/tools', 'heap6g.flag')
+                    try {
+                      if (enabled) fs.writeFileSync(flagPath, JSON.stringify({ enabled: true, at: new Date().toISOString() }, null, 2) + '\n')
+                      else fs.rmSync(flagPath, { force: true })
+                      watchdogState.heap6g = enabled
+                      appendIncident({ kind: 'heap6g', detail: enabled ? '已请求下次启动使用 6GB 堆（由 AI Prison Guard 应用）' : '已取消 6GB 堆请求' })
+                    } catch (error) {
+                      return Response.json({ ok: false, error: String((error && error.message) || error) }, { status: 500 })
+                    }
+                    return Response.json({ ok: true, enabled })
+                  }
                   if (action === 'probe') {
                     const progress = await scheduleProbe({ force: true })
                     return Response.json({ ok: true, progress })
@@ -1021,6 +1058,8 @@ export function watchdogSnapshot() {
     baseline: s.baseline ? { at: s.baseline.at, runId: s.baseline.runId, bundles: s.baseline.bundles } : null,
     budgets: s.budgets,
     tamper: s.tamper || null,
+    boot: s.boot || null,
+    heap6g: s.heap6g === true,
     rss: s.rss || {},
     rssAt: s.rssAt || null,
     rssError: s.rssError || null,
