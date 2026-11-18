@@ -7,6 +7,7 @@ import { watchdogState, MAX_SAMPLES, MAX_INCIDENTS } from './watchdog-state.js'
 import { probeBudget } from './budget-probe.js'
 import { createTamperMonitor } from './tamper-monitor.js'
 import { remediationFor } from './remediation.js'
+import { notify } from './notifier.js'
 import {
   attributeCrash,
   classifyWaterline,
@@ -155,7 +156,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       tamper = createTamperMonitor({
         profileDir,
         dataDir,
-        policy: config.tamperPolicy === 'alert' ? 'alert' : 'restore',
+        policy: config.tamperPolicy === 'restore' ? 'restore' : config.tamperPolicy === 'alert' ? 'alert' : 'observe',
         graceMs: Number(config.tamperGraceMs) >= 0 ? Number(config.tamperGraceMs) : 15_000,
         intervalMs: Number(config.tamperIntervalMs) > 0 ? Number(config.tamperIntervalMs) : 30_000,
         shouldIgnore: () => Date.now() < operationWindowUntil || Date.now() - lastOperationAt < 120000,
@@ -181,7 +182,8 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
   function handleTamper(result) {
     if (!result || !Array.isArray(result.diffs) || result.diffs.length === 0) return
     const files = result.diffs.map((diff) => diff.file)
-    appendIncident({ kind: 'tamper', files, policy: result.policy, restored: result.restored, detail: '配置漂移：' + files.join(', ') })
+    const policy = (watchdogState.tamper && watchdogState.tamper.policy) || 'observe'
+    appendIncident({ kind: 'tamper', files, policy, restored: result.restored, detail: '配置漂移：' + files.join(', ') + (policy === 'observe' ? '（observe：仅记录，不恢复不关闭）' : '') })
     let target = null
     let evidence = []
     try {
@@ -195,7 +197,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     } catch {
       target = null
     }
-    const applied = Boolean(watchdogState.enforce && target)
+    const applied = Boolean(watchdogState.enforce && target && policy === 'restore')
     const plan = { at: new Date().toISOString(), level: 'L1', crash: null, reason: 'tamper', remediation: remediationFor('tamper'), target, inFlight: false, evidence: { files: result.diffs, candidates: evidence }, applied }
     watchdogState.plans.push(plan)
     if (watchdogState.plans.length > 20) watchdogState.plans = watchdogState.plans.slice(-20)
@@ -259,6 +261,13 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
 
   function appendIncident(incident) {
     const record = { at: new Date().toISOString(), mode: watchdogState.mode, ...incident }
+    if (watchdogState.config && watchdogState.config.notify === true && ['freeze', 'pause', 'quarantine', 'tamper', 'crash-enforced', 'budget'].includes(record.kind)) {
+      try {
+        notify(record)
+      } catch {
+        // notifications are best effort
+      }
+    }
     watchdogState.incidents.push(record)
     if (watchdogState.incidents.length > MAX_INCIDENTS) watchdogState.incidents = watchdogState.incidents.slice(-MAX_INCIDENTS)
     try {

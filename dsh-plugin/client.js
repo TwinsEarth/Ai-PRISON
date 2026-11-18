@@ -473,7 +473,7 @@ window.__ModuleLoader__.load({
             plan.at + ' · ' + plan.level + ' · ' + (plan.target || 'unattributed') + (plan.inFlight ? ' (in-flight)' : '') + (plan.crash ? ' · ' + (plan.crash.oom ? 'OOM' : 'exit ' + plan.crash.hostExitCode) : ''))),
         ),
         watchdog.baseline ? h('p', { style: { ...C.muted, fontSize: 11.5, margin: '10px 0 0' } }, t('watchdog.baseline', { at: watchdog.baseline.at })) : null,
-        watchdog.tamper ? h('p', { style: { ...C.muted, fontSize: 11.5, margin: '6px 0 0' } }, t('watchdog.tamper', { n: (watchdog.tamper.files || []).length, at: watchdog.tamper.lastCheckAt || '—' })) : null,
+        watchdog.tamper ? h('p', { style: { ...C.muted, fontSize: 11.5, margin: '6px 0 0' } }, t('watchdog.tamper', { n: (watchdog.tamper.files || []).length, at: watchdog.tamper.lastCheckAt || '—', policy: watchdog.tamper.policy || '' })) : null,
         h('div', { style: { marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
           h('button', { style: { ...button, padding: '5px 10px', opacity: frozen ? 0.5 : 1 }, disabled: frozen, title: frozen ? t('watchdog.measureBlocked') : undefined, onClick: () => { if (!frozen) act('probe') } }, t('watchdog.measure')),
           watchdog.probeProgress ? h('span', { style: { ...C.mono, fontSize: 11.5 } }, `${watchdog.probeProgress.done || 0}/${watchdog.probeProgress.total || 0}`) : null,

@@ -238,3 +238,37 @@ test('legacy tamper quarantine from 1.4.3/1.4.4 is cleared once with an audited 
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('observe policy records the drift but never restores or jails', async () => {
+  resetWatchdogState()
+  const profile = makeProfile()
+  const dirs = { dir: makeTemp('.tmp-tamper-observe-') }
+  dirs.logs = path.join(dirs.dir, 'logs')
+  dirs.journal = path.join(dirs.dir, 'journal')
+  dirs.state = path.join(dirs.dir, 'state')
+  fs.mkdirSync(dirs.logs, { recursive: true })
+  fs.mkdirSync(dirs.journal, { recursive: true })
+  fs.mkdirSync(dirs.state, { recursive: true })
+  const { ctx } = makeCtx()
+  const watchdog = createWatchdog(
+    ctx,
+    { profileDir: profile, dataDir: dirs.state, logsDir: dirs.logs, journalDir: dirs.journal, sampleMs: 60_000, tamperIntervalMs: 0, tamperGraceMs: 0, tamperPolicy: 'observe' },
+    { info() {}, warn() {} },
+  )
+  try {
+    fs.writeFileSync(path.join(profile, 'package.json'), '{"name":"observed"}')
+    const result = await watchdog.tamperCheck({ force: true })
+    assert.equal(result.restored.length, 0)
+    assert.equal(JSON.parse(fs.readFileSync(path.join(profile, 'package.json'), 'utf8')).name, 'observed')
+    const snapshot = watchdog.snapshot()
+    const incident = snapshot.incidents.find((entry) => entry.kind === 'tamper')
+    assert.equal(incident.policy, 'observe')
+    assert.equal(snapshot.quarantine.length, 0)
+    const plan = snapshot.plans.find((entry) => entry.reason === 'tamper')
+    assert.equal(plan.applied, false)
+  } finally {
+    watchdog.dispose()
+    fs.rmSync(profile, { recursive: true, force: true })
+    fs.rmSync(dirs.dir, { recursive: true, force: true })
+  }
+})

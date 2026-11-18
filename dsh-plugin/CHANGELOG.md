@@ -2,6 +2,33 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.5.0] — 2026-11-18
+
+### Changed — profile tamper monitor is dry-run (observe) by default
+
+- `tamperPolicy` now accepts `observe` (default), `alert` and `restore`. In
+  `observe` the monitor still snapshots the five critical files, backs up the
+  drifted bytes to `tampered/` and records an L1 plan/incident, but **never
+  restores the file, never quarantines and never closes a plugin** — the
+  dry-run stage requested before turning the guard on.
+- `alert` records only as well; only an explicit `tamperPolicy: "restore"`
+  restores the bytes and applies L1 enforcement.
+- The panel line now shows the active policy, and the tool snapshot carries it.
+
+### Added — optional desktop notifications
+
+- `config: { notify: true }` turns on a Windows tray-balloon notification for
+  freeze, pause, quarantine, tamper, crash-enforcement and budget incidents
+  (rate limited per kind, 60 s; disabled by default). The watchdog does not
+  depend on it: failures are ignored.
+
+### Notes
+- The monitor stays a module inside the watchdog row rather than a separate
+  loader row: it runs in the same host process either way, and keeping it in
+  the row avoids a second loader entry whose failure would silently remove the
+  status API as well. It can already be disabled with `tamperMonitor: false`.
+
+## [1.4.7] — 2026-11-18
 ## [1.4.7] — 2026-11-18
 
 ### Added — panel/remote operations roll back while paused or frozen

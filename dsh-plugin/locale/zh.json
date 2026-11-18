@@ -17,7 +17,7 @@
   "watchdog.plans": "崩溃降级计划（dry-run）",
   "watchdog.noPlans": "暂无崩溃归因计划。",
   "watchdog.baseline": "干净基线：{at}",
-  "watchdog.tamper": "配置监控：{n} 个关键文件，最近检查 {at}",
+  "watchdog.tamper": "配置监控：{n} 个关键文件 · 策略 {policy} · 最近检查 {at}",
   "watchdog.measure": "立即测量插件预算",
   "watchdog.measureBlocked": "堆已冻结：测量会启动子进程，恢复前暂停测量。"
 }
