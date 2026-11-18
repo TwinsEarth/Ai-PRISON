@@ -5,6 +5,7 @@ import v8 from 'node:v8'
 import crypto from 'node:crypto'
 import { watchdogState, MAX_SAMPLES, MAX_INCIDENTS } from './watchdog-state.js'
 import { probeBudget } from './budget-probe.js'
+import { createTamperMonitor } from './tamper-monitor.js'
 import {
   attributeCrash,
   classifyWaterline,
@@ -97,7 +98,7 @@ function readJournalRecords(journalDir) {
 
 /** Read-only watchdog runtime. Enforcement never touches plugin files, only the manager API. */
 export function createWatchdog(ctx, config = {}, logger = {}) {
-  const profileDir = resolveProfileDir()
+  const profileDir = config.profileDir ? path.resolve(String(config.profileDir)) : resolveProfileDir()
   const dataDir = config.dataDir ? path.resolve(String(config.dataDir)) : path.join(profileDir, '.ai-prison-watchdog')
   const logsDir = config.logsDir ? path.resolve(String(config.logsDir)) : resolveLogsDir()
   const journalDir = config.journalDir ? path.resolve(String(config.journalDir)) : resolveJournalDir()
@@ -135,8 +136,69 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
   for (const plan of watchdogState.plans) plan.applied = false
 
   let lastFlush = 0
+  let operationWindowUntil = 0
+  let tamper = null
   restoreState()
   readCrashLogs()
+  setupTamperMonitor()
+
+  function setupTamperMonitor() {
+    if (config.tamperMonitor === false) {
+      watchdogState.tamper = { enabled: false, policy: 'off', files: [], lastCheckAt: null, lastDiff: [], restored: [], incidents: 0 }
+      return
+    }
+    try {
+      tamper = createTamperMonitor({
+        profileDir,
+        dataDir,
+        policy: config.tamperPolicy === 'alert' ? 'alert' : 'restore',
+        graceMs: Number(config.tamperGraceMs) >= 0 ? Number(config.tamperGraceMs) : 15_000,
+        intervalMs: Number(config.tamperIntervalMs) > 0 ? Number(config.tamperIntervalMs) : 30_000,
+        shouldIgnore: () => Date.now() < operationWindowUntil,
+        onTamper: handleTamper,
+        log: (message) => log.info('[ai-prison-watchdog] ' + message),
+      })
+      watchdogState.tamper = tamper.status()
+      const interval = Number(config.tamperIntervalMs)
+      if (interval !== 0) tamper.start()
+    } catch (error) {
+      watchdogState.degraded = 'tamper monitor: ' + String((error && error.message) || error)
+    }
+  }
+
+  function refreshTamperStatus() {
+    if (tamper) watchdogState.tamper = tamper.status()
+  }
+
+  function handleTamper(result) {
+    if (!result || !Array.isArray(result.diffs) || result.diffs.length === 0) return
+    const files = result.diffs.map((diff) => diff.file)
+    appendIncident({ kind: 'tamper', files, policy: result.policy, restored: result.restored, detail: '配置漂移：' + files.join(', ') })
+    let target = null
+    let evidence = []
+    try {
+      const records = readJournalRecords(journalDir).filter((record) => {
+        const at = Date.parse((record && record.operation && record.operation.time) || 0)
+        return Number.isFinite(at) && Date.now() - at < 6 * 3600 * 1000
+      })
+      const attribution = attributeCrash(records, { hostRunId: null })
+      target = attribution.picked ? attribution.picked.target : null
+      evidence = attribution.candidates
+    } catch {
+      target = null
+    }
+    const applied = Boolean(watchdogState.enforce && target)
+    const plan = { at: new Date().toISOString(), level: 'L1', crash: null, reason: 'tamper', target, inFlight: false, evidence: { files: result.diffs, candidates: evidence }, applied }
+    watchdogState.plans.push(plan)
+    if (watchdogState.plans.length > 20) watchdogState.plans = watchdogState.plans.slice(-20)
+    if (applied) {
+      watchdogState.quarantine.set(target, { reason: 'tamper', level: 'L1', at: plan.at, release: 'manual', evidence: '配置漂移：' + files.join(', ') })
+      void disableTarget(target, 'tamper')
+      writePendingBoot({ level: 'L1', reason: 'tamper', disable: [target], keep: [] })
+      appendIncident({ kind: 'tamper-enforced', target, files, detail: '配置漂移后已隔离 ' + target })
+    }
+    persist(true)
+  }
 
   function persist(force = false) {
     const now = Date.now()
@@ -260,6 +322,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       appendIncident({ kind: 'strong-warn', level: 'pause', heapUsed, heapLimit, detail: `heap ${formatBytes(heapUsed)} ≥ 强警告 ${formatBytes(thresholds.opWarn)}` })
     }
     maybeWriteBaseline()
+    refreshTamperStatus()
   }
 
   // ---- clean baseline (requirement 4, dry-run in P1) ----------------------
@@ -312,12 +375,14 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       if ((watchdogState.suppressUntil.get(target) || 0) > Date.now()) return
       const entry = watchdogState.operations.get(target) || { count: 0, estimateMB: 0, lastAt: null, version: operation.version || null, lastApplication: null }
       if (operation.phase === 'started') {
+        operationWindowUntil = Date.now() + 4000
         inflight.set(operation.id, { target, heapBefore: watchdogState.latest ? watchdogState.latest.heapUsed : 0 })
         entry.lastAt = operation.time || entry.lastAt
         watchdogState.operations.set(target, entry)
         return
       }
       if (operation.phase !== 'settled') return
+      operationWindowUntil = Date.now() + 4000
       const weight = operationWeight(operation)
       if (weight > 0 && operation.application !== 'failed' && operation.application !== 'cancelled') {
         entry.count = Math.round((Number(entry.count) + weight) * 10) / 10
@@ -701,6 +766,12 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     snapshot: watchdogSnapshot,
     sample,
     readCrashLogs,
+    tamperCheck: (options) => {
+      if (!tamper) return null
+      const result = tamper.checkNow(options)
+      refreshTamperStatus()
+      return result
+    },
     disableTarget,
     releaseTarget,
     dispose() {
@@ -747,6 +818,7 @@ export function watchdogSnapshot() {
     crashFallback: s.crashFallback || 'enforce',
     baseline: s.baseline ? { at: s.baseline.at, runId: s.baseline.runId, bundles: s.baseline.bundles } : null,
     budgets: s.budgets,
+    tamper: s.tamper || null,
     incidents: s.incidents.slice(-20),
     generatedAt: new Date().toISOString(),
   }

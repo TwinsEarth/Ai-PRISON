@@ -213,6 +213,7 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
           escalation: snapshot.escalation,
           baselineAt: snapshot.baseline ? snapshot.baseline.at : null,
           budgets: snapshot.budgets,
+          tamper: snapshot.tamper,
           operations: snapshot.operations,
           incidents: snapshot.incidents,
           note: snapshot.enforce

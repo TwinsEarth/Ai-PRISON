@@ -36,6 +36,8 @@ export const watchdogState = {
   plans: [],
   /** Escalation counters: crash timestamps (ms) and applied level. */
   escalation: { crashes: [], level: 'L0' },
+  /** Profile file tamper monitor status. */
+  tamper: null,
   /** Recent incidents (newest last), capped. */
   incidents: [],
   /** Last crash-log scan marker (ms). */
@@ -69,6 +71,7 @@ export function resetWatchdogState(overrides = {}) {
   watchdogState.baseline = null
   watchdogState.plans = []
   watchdogState.escalation = { crashes: [], level: 'L0' }
+  watchdogState.tamper = null
   watchdogState.incidents = []
   watchdogState.lastCrashScan = 0
   watchdogState.degraded = null

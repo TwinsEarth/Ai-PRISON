@@ -2,6 +2,35 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.4.3] — 2026-11-18
+
+### Added — profile tamper monitor (requirement 3, the missing half)
+
+- **Hash watch of the critical profile files** (`package.json`,
+  `cordis.patch.yml`, `cordis.yml`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`):
+  a baseline with the original bytes is captured at watchdog start, the files are
+  re-hashed every 30 s, and the first 15 s after startup are treated as normal
+  startup writes.
+- A drift **outside a plugin-manager operation window** (±4 s around
+  started/settled) is tampering: the changed bytes are copied to
+  `.ai-prison-watchdog/tampered/<ts>/`, the original bytes are restored by
+  default (`tamperPolicy: 'alert'` keeps the change), and an L1 plan is
+  attributed from the operation journal (in-flight install/enable first). In
+  enforce mode the attributed plugin is quarantined, closed and queued in
+  `pending-boot.json` for the external guard.
+- New `tamper` block in the watchdog snapshot/tool output, and a "Profile
+  watch" line in the panel Enforcement card.
+
+### Fixed
+- `lib/budget-child.mjs` was missing from the npm package (`files` only
+  matched `lib/*.js`), which made every per-plugin budget probe fail with
+  "Cannot find module". `files` now ships `lib/*.mjs` too.
+
+### Tests
+- New `test/tamper-monitor.test.mjs`: snapshot/diff/restore, real runtime drift
+  detection with restore, operation-window suppression, and the alert policy.
+
+## [1.4.2] — 2026-11-18
 ## [1.4.2] — 2026-11-18
 
 ### Added

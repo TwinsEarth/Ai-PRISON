@@ -464,6 +464,7 @@ window.__ModuleLoader__.load({
             plan.at + ' · ' + plan.level + ' · ' + (plan.target || 'unattributed') + (plan.inFlight ? ' (in-flight)' : '') + (plan.crash ? ' · ' + (plan.crash.oom ? 'OOM' : 'exit ' + plan.crash.hostExitCode) : ''))),
         ),
         watchdog.baseline ? h('p', { style: { ...C.muted, fontSize: 11.5, margin: '10px 0 0' } }, t('watchdog.baseline', { at: watchdog.baseline.at })) : null,
+        watchdog.tamper ? h('p', { style: { ...C.muted, fontSize: 11.5, margin: '6px 0 0' } }, t('watchdog.tamper', { n: (watchdog.tamper.files || []).length, at: watchdog.tamper.lastCheckAt || '—' })) : null,
       )
     }
 

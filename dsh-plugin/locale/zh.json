@@ -16,5 +16,6 @@
   "watchdog.close": "立即关闭",
   "watchdog.plans": "崩溃降级计划（dry-run）",
   "watchdog.noPlans": "暂无崩溃归因计划。",
-  "watchdog.baseline": "干净基线：{at}"
+  "watchdog.baseline": "干净基线：{at}",
+  "watchdog.tamper": "配置监控：{n} 个关键文件，最近检查 {at}"
 }
