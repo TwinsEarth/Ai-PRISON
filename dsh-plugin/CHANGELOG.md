@@ -2,6 +2,20 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.4.2] — 2026-11-18
+
+### Added
+- Panel scrolling: the AI Prison page is a bounded scroll container now
+  (`height/maxHeight: 100%`, `overflow-y: auto`, thin scrollbar gutter,
+  `overscroll-behavior: contain`), so the page shows a vertical scrollbar and
+  the mouse wheel scrolls the card list instead of clipping the content.
+
+### Fixed
+- CI: `test/harness.test.mjs` asserted Windows separators and failed on the
+  ubuntu runner. The test now builds expectations with `path.join`, so the
+  release workflow passes on every platform.
+
+## [1.4.1] — 2026-11-18
 ## [1.4.1] — 2026-11-18
 
 ### Fixed — tools vanished after switching the host to the real-Node runtime

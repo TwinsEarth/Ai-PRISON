@@ -145,7 +145,23 @@ window.__ModuleLoader__.load({
     }
 
     const C = {
-      page: { maxWidth: 980, margin: '0 auto', padding: '20px 24px 16px', color: 'var(--dsw-alias-label-primary, #0f1115)' },
+      page: {
+        maxWidth: 980,
+        margin: '0 auto',
+        padding: '20px 24px 16px',
+        color: 'var(--dsw-alias-label-primary, #0f1115)',
+        boxSizing: 'border-box',
+        height: '100%',
+        maxHeight: '100%',
+        minHeight: 0,
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        overscrollBehavior: 'contain',
+        scrollbarGutter: 'stable',
+        scrollbarWidth: 'thin',
+        scrollbarColor: 'rgba(128,128,128,.55) transparent',
+        WebkitOverflowScrolling: 'touch',
+      },
       header: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 },
       title: { fontSize: 18, fontWeight: 600, margin: 0 },
       sub: { fontSize: 12, color: 'var(--dsw-alias-label-secondary, #61666b)', margin: '3px 0 0' },
