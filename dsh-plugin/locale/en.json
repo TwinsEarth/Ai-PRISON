@@ -18,5 +18,6 @@
   "watchdog.noPlans": "No crash attribution plans.",
   "watchdog.baseline": "Clean baseline: {at}",
   "watchdog.tamper": "Profile watch: {n} critical file(s), last check {at}",
-  "watchdog.measure": "Measure plugin budgets now"
+  "watchdog.measure": "Measure plugin budgets now",
+  "watchdog.measureBlocked": "Heap is frozen: measuring spawns child processes, so it stays disabled until the heap recovers."
 }

@@ -138,6 +138,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
 
   let lastFlush = 0
   let operationWindowUntil = 0
+  let lastOperationAt = 0
   const operationWindows = []
   let tamperMigrationDone = false
   let tamper = null
@@ -157,7 +158,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
         policy: config.tamperPolicy === 'alert' ? 'alert' : 'restore',
         graceMs: Number(config.tamperGraceMs) >= 0 ? Number(config.tamperGraceMs) : 15_000,
         intervalMs: Number(config.tamperIntervalMs) > 0 ? Number(config.tamperIntervalMs) : 30_000,
-        shouldIgnore: () => Date.now() < operationWindowUntil,
+        shouldIgnore: () => Date.now() < operationWindowUntil || Date.now() - lastOperationAt < 120000,
         isWithinOperationWindow: (mtimeMs) => {
           const now = Date.now()
           return operationWindows.some((window) => mtimeMs >= window.startedAt - 5000 && mtimeMs <= (window.settledAt || now) + 5000)
@@ -396,6 +397,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       const entry = watchdogState.operations.get(target) || { count: 0, estimateMB: 0, lastAt: null, version: operation.version || null, lastApplication: null }
       if (operation.phase === 'started') {
         operationWindowUntil = Date.now() + 4000
+        lastOperationAt = Date.now()
         operationWindows.push({ startedAt: Date.now(), settledAt: null })
         if (operationWindows.length > 20) operationWindows.shift()
         inflight.set(operation.id, { target, heapBefore: watchdogState.latest ? watchdogState.latest.heapUsed : 0 })
@@ -405,6 +407,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       }
       if (operation.phase !== 'settled') return
       operationWindowUntil = Date.now() + 4000
+      lastOperationAt = Date.now()
       for (let i = operationWindows.length - 1; i >= 0; i -= 1) {
         if (operationWindows[i].settledAt === null) { operationWindows[i].settledAt = Date.now(); break }
       }
@@ -422,6 +425,24 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       entry.version = operation.version || entry.version
       entry.lastApplication = operation.application || null
       watchdogState.operations.set(target, entry)
+      const additive = operation.stage === 'install' || (operation.stage === 'enable' && operation.enabled !== false)
+      if (
+        watchdogState.enforce &&
+        additive &&
+        target &&
+        !EXEMPT_TARGETS.has(target) &&
+        (watchdogState.waterline === 'frost' || watchdogState.waterline === 'pause') &&
+        !(Number.isFinite(watchdogState.graceUntil) && Date.now() < watchdogState.graceUntil)
+      ) {
+        const level = watchdogState.waterline
+        appendIncident({
+          kind: level === 'frost' ? 'freeze-rollback' : 'pause-rollback',
+          target,
+          level,
+          detail: (level === 'frost' ? '冻结' : '暂停') + '期间检测到面板/网页发起的增内存操作，已立即回滚关闭 ' + target,
+        })
+        void disableTarget(target, level + '-rollback')
+      }
       if (operation.reason === 'remove' && operation.application === 'applied') {
         watchdogState.operations.delete(target)
         return

@@ -2,6 +2,32 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.4.7] — 2026-11-18
+
+### Added — panel/remote operations roll back while paused or frozen
+
+- The 5 GB freeze (and the 3.9 GB pause without a confirmation) now also covers
+  operations started from the panel or the web UI, not just the agent tool:
+  after an additive operation settles, the watchdog immediately disables that
+  bundle and records a `freeze-rollback` / `pause-rollback` incident. Release
+  operations (disable/remove) and a confirmed pause grace window stay allowed.
+- The panel's "Measure plugin budgets now" button is disabled while frozen,
+  because each probe spawns a child process.
+
+### Fixed — tamper monitor no longer flags the manager's own writes
+
+- The operation-window suppression was ±5 s around settle, but pnpm may write
+  package.json / pnpm-lock.yaml later than that, so installs of 1.4.5/1.4.6 were
+  repeatedly "restored" by the tamper monitor and some installs failed.
+- Any drift within 120 s after the last plugin operation is now treated as a
+  manager write; the mtime window still applies to older operations. Real
+  out-of-window edits (manual scripts) are still detected and restored.
+
+### Tests
+- New `test/watchdog-freeze.test.mjs`: freeze rollback, pause rollback with and
+  without grace, and release-class operations never rolled back.
+
+## [1.4.6] — 2026-11-18
 ## [1.4.6] — 2026-11-18
 
 ### Added — structured reason / impact / steps / release text
