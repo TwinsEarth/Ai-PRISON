@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import { watchdogState, MAX_SAMPLES, MAX_INCIDENTS } from './watchdog-state.js'
 import { probeBudget } from './budget-probe.js'
 import { createTamperMonitor } from './tamper-monitor.js'
+import { remediationFor } from './remediation.js'
 import {
   attributeCrash,
   classifyWaterline,
@@ -194,11 +195,11 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       target = null
     }
     const applied = Boolean(watchdogState.enforce && target)
-    const plan = { at: new Date().toISOString(), level: 'L1', crash: null, reason: 'tamper', target, inFlight: false, evidence: { files: result.diffs, candidates: evidence }, applied }
+    const plan = { at: new Date().toISOString(), level: 'L1', crash: null, reason: 'tamper', remediation: remediationFor('tamper'), target, inFlight: false, evidence: { files: result.diffs, candidates: evidence }, applied }
     watchdogState.plans.push(plan)
     if (watchdogState.plans.length > 20) watchdogState.plans = watchdogState.plans.slice(-20)
     if (applied) {
-      watchdogState.quarantine.set(target, { reason: 'tamper', level: 'L1', at: plan.at, release: 'manual', evidence: '配置漂移：' + files.join(', ') })
+      watchdogState.quarantine.set(target, { reason: 'tamper', level: 'L1', at: plan.at, release: 'manual', evidence: '配置漂移：' + files.join(', '), remediation: remediationFor('tamper') })
       void disableTarget(target, 'tamper')
       writePendingBoot({ level: 'L1', reason: 'tamper', disable: [target], keep: [] })
       appendIncident({ kind: 'tamper-enforced', target, files, detail: '配置漂移后已隔离 ' + target })
@@ -310,6 +311,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
         heapUsed,
         heapLimit,
         detail: `heap ${formatBytes(heapUsed)} ≥ block ${formatBytes(thresholds.totalBlock)}：冻结插件操作`,
+        remediation: remediationFor('freeze'),
       })
       log.warn(`[ai-prison-watchdog] ${incident.detail}`)
       persist(true)
@@ -321,6 +323,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
         heapUsed,
         heapLimit,
         detail: `heap ${formatBytes(heapUsed)} ≥ pause ${formatBytes(thresholds.totalPause)}：插件操作需二次确认`,
+        remediation: remediationFor('pause'),
       })
       persist(true)
     } else if (waterline === 'warn' && previous !== 'warn' && previous === 'ok') {
@@ -430,6 +433,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
           at: new Date().toISOString(),
           release: 'restart',
           evidence: `本次运行内热操作计数 ${entry.count} > 5（安装/启用/热切换）`,
+          remediation: remediationFor('hot-ops', { count: entry.count }),
         })
         appendIncident({ kind: 'quarantine', target, level: 'L2', reason: 'hot-ops', detail: `热操作 ${entry.count} 次 > 5，自动关闭` })
         persist(true)
@@ -490,7 +494,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     const unique = [...new Set(targets)].filter((target) => target && !EXEMPT_TARGETS.has(target) && !watchdogState.quarantine.has(target))
     const disabled = []
     for (const target of unique) {
-      watchdogState.quarantine.set(target, { reason, level: 'crash', at: new Date().toISOString(), release: 'manual', evidence: reason })
+      watchdogState.quarantine.set(target, { reason, level: 'crash', at: new Date().toISOString(), release: 'manual', evidence: reason, remediation: remediationFor(reason) })
       if (await disableTarget(target, reason)) disabled.push(target)
       await new Promise((resolve) => setTimeout(resolve, 300))
     }
@@ -500,7 +504,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
   async function enforceCrashPlan(plan) {
     if (!plan || !plan.target || watchdogState.crashFallback !== 'enforce') return
     try {
-      watchdogState.quarantine.set(plan.target, { reason: 'crash', level: plan.level, at: new Date().toISOString(), release: 'manual', evidence: plan.reason })
+      watchdogState.quarantine.set(plan.target, { reason: 'crash', level: plan.level, at: new Date().toISOString(), release: 'manual', evidence: plan.reason, remediation: remediationFor('crash') })
       const disabled = [plan.target].filter((target) => !EXEMPT_TARGETS.has(target))
       await disableTarget(plan.target, 'crash-' + plan.level)
       let targets = [plan.target]
@@ -584,7 +588,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     if (thresholds && mb >= Math.round(thresholds.singleBlock / (1024 * 1024))) {
       appendIncident({ kind: 'plugin-budget', target: name, level: 'block', detail: '启动实测 ' + mb + ' MB > 500 MB，禁止该插件' })
       if (watchdogState.enforce) {
-        watchdogState.quarantine.set(name, { reason: 'budget', level: 'L1', at: new Date().toISOString(), release: 'manual', evidence: mb + ' MB > 500 MB' })
+        watchdogState.quarantine.set(name, { reason: 'budget', level: 'L1', at: new Date().toISOString(), release: 'manual', evidence: mb + ' MB > 500 MB', remediation: remediationFor('budget') })
         void disableTarget(name, 'budget-over-500MB')
         writePendingBoot({ level: 'L1', reason: 'budget', disable: [name], keep: [] })
       }
@@ -674,6 +678,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       const plan = {
         at: new Date().toISOString(),
         level,
+        remediation: remediationFor('crash'),
         crash: { file: crash.file, time: crash.parsed.time, phase: crash.parsed.phase, oom: crash.parsed.oom, hostExitCode: crash.parsed.hostExitCode },
         hostRunId: crash.parsed.hostRunId,
         target: attribution.picked ? attribution.picked.target : null,

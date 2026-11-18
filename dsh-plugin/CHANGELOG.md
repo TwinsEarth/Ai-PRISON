@@ -2,6 +2,26 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.4.6] — 2026-11-18
+
+### Added — structured reason / impact / steps / release text
+
+- New `lib/remediation.js` explains every enforcement action in four fixed
+  sections: why it happened, what it affects, what to do (numbered steps) and how
+  the plugin leaves the prison.
+- Freeze, pause and every quarantine reason (hot-ops, crash, budget, tamper) now
+  carry a `remediation` object in the incident, the quarantine entry and the
+  crash/tamper plan.
+- The panel "Plugin prison" renders it under each jailed plugin (title, why,
+  impact, numbered steps, release path); the agent tool returns the same object.
+- Tests cover every remediation reason and the quarantine payload.
+
+### Notes
+- This completes the three follow-ups requested for the probe work: the probe
+  publish fix and the full background probe queue shipped in 1.4.3/1.4.4; this
+  release adds the operator-facing explanation.
+
+## [1.4.5] — 2026-11-18
 ## [1.4.5] — 2026-11-18
 
 ### Fixed — tamper monitor false positives (important)
