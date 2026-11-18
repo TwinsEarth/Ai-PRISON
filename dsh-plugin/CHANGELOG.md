@@ -2,6 +2,32 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.4.5] — 2026-11-18
+
+### Fixed — tamper monitor false positives (important)
+
+- The first tamper monitor attributed writes at **poll time**, not at write time, so
+  a legitimate plugin-manager write (install/enable rewrites package.json and
+  pnpm-lock.yaml) was classified as tampering 30 s later. That closed and jailed
+  plugins after every install.
+- Operation windows are now recorded on `started`/`settled` and matched against
+  each changed file's **mtime** (±5 s), so a manager write stays legitimate even
+  when the poll happens after the window closed.
+- One-time migration: tamper quarantine persisted by 1.4.3/1.4.4 is cleared with
+  an audited `migration` incident instead of re-closing those plugins on boot.
+
+### Fixed — budget probe could not import plugins that use harness peers
+
+- `budget-child.mjs` now resolves `@deepseek-ai/*` and `cordis` from the DSH
+  installation via `module.registerHooks`, so plugins like `dsh-context` that
+  import `@deepseek-ai/dsh-session` at module scope can be measured.
+- Also fixed a wrong `pathToFileURL` import that broke the probe child entirely.
+
+### Tests
+- mtime operation-window suppression, legacy tamper-quarantine migration, and the
+  probe child import path are covered by the test suite (70 tests total).
+
+## [1.4.4] — 2026-11-18
 ## [1.4.4] — 2026-11-18
 
 ### Fixed — per-plugin budget probe actually works end to end

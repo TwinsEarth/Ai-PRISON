@@ -5,7 +5,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { createWatchdog } from '../lib/watchdog-runtime.js'
 import { resetWatchdogState } from '../lib/watchdog-state.js'
-import { diffSnapshots, restoreBaseline, snapshotCriticalFiles } from '../lib/tamper-monitor.js'
+import { createTamperMonitor, diffSnapshots, restoreBaseline, snapshotCriticalFiles } from '../lib/tamper-monitor.js'
 
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -168,5 +168,73 @@ test('tamper policy alert keeps the changed file but still records the drift', a
     watchdog.dispose()
     fs.rmSync(profile, { recursive: true, force: true })
     fs.rmSync(dirs.dir, { recursive: true, force: true })
+  }
+})
+
+test('a write inside a plugin-manager window is not tampering even when polled later', () => {
+  const profile = makeProfile()
+  const dataDir = makeTemp('.tmp-tamper-mtime-')
+  try {
+    const windowEnd = Date.now() - 10_000
+    const windowStart = windowEnd - 5_000
+    const monitor = createTamperMonitor({
+      profileDir: profile,
+      dataDir,
+      graceMs: 0,
+      intervalMs: 0,
+      isWithinOperationWindow: (mtimeMs) => mtimeMs >= windowStart - 5_000 && mtimeMs <= windowEnd + 5_000,
+      onTamper: () => {
+        throw new Error('operation-window write must not be reported as tampering')
+      },
+    })
+    fs.writeFileSync(path.join(profile, 'package.json'), '{"name":"manager-write"}')
+    const seconds = (windowStart + 1000) / 1000
+    fs.utimesSync(path.join(profile, 'package.json'), seconds, seconds)
+    const result = monitor.checkNow()
+    assert.equal(result.diffs.length, 0)
+    assert.equal(result.skipped, 'operation-window')
+    assert.equal(JSON.parse(fs.readFileSync(path.join(profile, 'package.json'), 'utf8')).name, 'manager-write')
+  } finally {
+    fs.rmSync(profile, { recursive: true, force: true })
+    fs.rmSync(dataDir, { recursive: true, force: true })
+  }
+})
+
+test('legacy tamper quarantine from 1.4.3/1.4.4 is cleared once with an audited migration', () => {
+  resetWatchdogState()
+  const profile = makeProfile()
+  const dir = makeTemp('.tmp-tamper-migrate-')
+  const logs = path.join(dir, 'logs')
+  const journal = path.join(dir, 'journal')
+  const state = path.join(dir, 'state')
+  fs.mkdirSync(logs, { recursive: true })
+  fs.mkdirSync(journal, { recursive: true })
+  fs.mkdirSync(state, { recursive: true })
+  fs.writeFileSync(
+    path.join(state, 'state.json'),
+    JSON.stringify({
+      startedAt: new Date().toISOString(),
+      lastCrashScan: 0,
+      incidents: [],
+      escalation: { crashes: [], level: 'L0' },
+      budgets: {},
+      quarantine: [{ target: '@twinsearth/fang-dsh-plugin', reason: 'tamper', level: 'L1', at: new Date().toISOString(), release: 'manual', evidence: 'old false positive' }],
+      migratedTamperQuarantine: false,
+    }),
+  )
+  const { ctx } = makeCtx()
+  const watchdog = createWatchdog(
+    ctx,
+    { profileDir: profile, dataDir: state, logsDir: logs, journalDir: journal, sampleMs: 60_000, tamperMonitor: false },
+    { info() {}, warn() {} },
+  )
+  try {
+    const snapshot = watchdog.snapshot()
+    assert.equal(snapshot.quarantine.length, 0)
+    assert.ok(snapshot.incidents.some((incident) => incident.kind === 'migration'))
+  } finally {
+    watchdog.dispose()
+    fs.rmSync(profile, { recursive: true, force: true })
+    fs.rmSync(dir, { recursive: true, force: true })
   }
 })

@@ -137,6 +137,8 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
 
   let lastFlush = 0
   let operationWindowUntil = 0
+  const operationWindows = []
+  let tamperMigrationDone = false
   let tamper = null
   restoreState()
   readCrashLogs()
@@ -155,6 +157,10 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
         graceMs: Number(config.tamperGraceMs) >= 0 ? Number(config.tamperGraceMs) : 15_000,
         intervalMs: Number(config.tamperIntervalMs) > 0 ? Number(config.tamperIntervalMs) : 30_000,
         shouldIgnore: () => Date.now() < operationWindowUntil,
+        isWithinOperationWindow: (mtimeMs) => {
+          const now = Date.now()
+          return operationWindows.some((window) => mtimeMs >= window.startedAt - 5000 && mtimeMs <= (window.settledAt || now) + 5000)
+        },
         onTamper: handleTamper,
         log: (message) => log.info('[ai-prison-watchdog] ' + message),
       })
@@ -212,6 +218,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       baseline: watchdogState.baseline,
       budgets: watchdogState.budgets,
       quarantine: [...watchdogState.quarantine].map(([target, entry]) => ({ target, ...entry })),
+      migratedTamperQuarantine: tamperMigrationDone,
     }
     try {
       fs.writeFileSync(stateFile, `${JSON.stringify(payload, null, 2)}\n`)
@@ -228,10 +235,20 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       if (parsed.escalation && Array.isArray(parsed.escalation.crashes)) watchdogState.escalation = { crashes: parsed.escalation.crashes.slice(-50), level: parsed.escalation.level || 'L0' }
       if (parsed.baseline && Array.isArray(parsed.baseline.bundles)) watchdogState.baseline = parsed.baseline
       if (parsed.budgets && typeof parsed.budgets === 'object') watchdogState.budgets = parsed.budgets
+      tamperMigrationDone = parsed.migratedTamperQuarantine === true
       if (Array.isArray(parsed.quarantine)) {
+        let dropped = 0
         for (const entry of parsed.quarantine) {
+          if (!tamperMigrationDone && entry && entry.reason === 'tamper') {
+            dropped += 1
+            continue
+          }
           if (entry && typeof entry.target === 'string') watchdogState.quarantine.set(entry.target, { reason: entry.reason || 'crash', level: entry.level || 'L1', at: entry.at || new Date().toISOString(), release: entry.release || 'manual', evidence: entry.evidence || '' })
         }
+        if (dropped > 0) {
+          watchdogState.incidents.push({ at: new Date().toISOString(), mode: watchdogState.mode, kind: 'migration', detail: '清理 ' + dropped + ' 条 1.4.3/1.4.4 误判的 tamper 隔离（操作窗口归因已修复）' })
+        }
+        tamperMigrationDone = true
       }
     } catch {
       // first run or unreadable state: start clean
@@ -376,6 +393,8 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       const entry = watchdogState.operations.get(target) || { count: 0, estimateMB: 0, lastAt: null, version: operation.version || null, lastApplication: null }
       if (operation.phase === 'started') {
         operationWindowUntil = Date.now() + 4000
+        operationWindows.push({ startedAt: Date.now(), settledAt: null })
+        if (operationWindows.length > 20) operationWindows.shift()
         inflight.set(operation.id, { target, heapBefore: watchdogState.latest ? watchdogState.latest.heapUsed : 0 })
         entry.lastAt = operation.time || entry.lastAt
         watchdogState.operations.set(target, entry)
@@ -383,6 +402,9 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       }
       if (operation.phase !== 'settled') return
       operationWindowUntil = Date.now() + 4000
+      for (let i = operationWindows.length - 1; i >= 0; i -= 1) {
+        if (operationWindows[i].settledAt === null) { operationWindows[i].settledAt = Date.now(); break }
+      }
       const weight = operationWeight(operation)
       if (weight > 0 && operation.application !== 'failed' && operation.application !== 'cancelled') {
         entry.count = Math.round((Number(entry.count) + weight) * 10) / 10
