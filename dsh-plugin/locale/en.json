@@ -19,5 +19,7 @@
   "watchdog.baseline": "Clean baseline: {at}",
   "watchdog.tamper": "Profile watch: {n} critical file(s) · policy {policy} · last check {at}",
   "watchdog.measure": "Measure plugin budgets now",
-  "watchdog.measureBlocked": "Heap is frozen: measuring spawns child processes, so it stays disabled until the heap recovers."
+  "watchdog.measureBlocked": "Heap is frozen: measuring spawns child processes, so it stays disabled until the heap recovers.",
+  "prison.rss": "Child RSS",
+  "prison.plugin": "Plugin"
 }

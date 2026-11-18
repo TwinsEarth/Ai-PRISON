@@ -15,6 +15,20 @@ All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
   restores the bytes and applies L1 enforcement.
 - The panel line now shows the active policy, and the tool snapshot carries it.
 
+### Added — Top5 v2 (child RSS, EWMA, stable order)
+
+- Every 60 s the watchdog scans the process table (Windows) and attributes the
+  working set of processes whose command line references
+  `profiles/desktop/node_modules/<plugin>` to that plugin (`rssMB`).
+- Top5 scores `module-load/operation estimate + child RSS`, smooths RSS with an
+  EWMA (alpha 0.35) and only reorders when a score moved more than 20 %, which
+  stops the list from jumping on every sample.
+- The panel Top5 table gained a child-RSS column; the tool snapshot exposes
+  `rss` and `rssAt`.
+- A pre-freeze heap snapshot is intentionally not taken: at 4.5 GB of a 6 GB
+  heap the snapshot's ~2x temporary cost would OOM the host, so freeze keeps
+  using the measured/estimate/RSS data.
+
 ### Added — optional desktop notifications
 
 - `config: { notify: true }` turns on a Windows tray-balloon notification for

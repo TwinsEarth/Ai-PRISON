@@ -222,6 +222,53 @@ export function topOperations(operations, limit = 5) {
   return rows.slice(0, Math.max(1, limit))
 }
 
+/**
+ * Top5 v2: combine measured module-load MB, operation estimates and the RSS of
+ * child processes attributed to a plugin. The ranking is smoothed and stable:
+ * an item only changes rank when its score moved by more than 20%.
+ */
+export function rankTopPlugins({ operations = [], budgets = {}, rss = {}, previous = {}, alpha = 0.35, limit = 5 } = {}) {
+  const rows = new Map()
+  for (const row of operations) {
+    rows.set(row.target, { target: row.target, operationMB: Number(row.estimateMB) || 0, count: Number(row.count) || 0, version: row.version || null, source: row.source || 'estimate', measuredAt: row.measuredAt || null })
+  }
+  for (const [target, entry] of Object.entries(budgets)) {
+    if (!entry || entry.error || entry.moduleLoadMB === undefined) continue
+    const current = rows.get(target) || { target, operationMB: 0, count: 0, version: entry.version || null, source: 'measured', measuredAt: entry.measuredAt || null }
+    current.moduleLoadMB = Number(entry.moduleLoadMB) || 0
+    current.source = 'measured'
+    current.measuredAt = entry.measuredAt || current.measuredAt
+    current.version = entry.version || current.version
+    rows.set(target, current)
+  }
+  for (const [target, bytes] of Object.entries(rss)) {
+    const current = rows.get(target) || { target, operationMB: 0, count: 0, version: null, source: 'estimate', measuredAt: null }
+    const previousRss = Number(previous[target] && previous[target].rssMB) || 0
+    current.rssMB = previousRss > 0 ? Math.round(previousRss * (1 - alpha) + (Number(bytes) / (1024 * 1024)) * alpha) : Math.round((Number(bytes) || 0) / (1024 * 1024))
+    rows.set(target, current)
+  }
+  const ranked = [...rows.values()].map((row) => ({
+    ...row,
+    rssMB: row.rssMB || 0,
+    score: Math.round((row.moduleLoadMB || row.operationMB || 0) + (row.rssMB || 0)),
+  }))
+  ranked.sort((a, b) => b.score - a.score)
+  const changed = ranked.some((row) => {
+    const before = previous[row.target]
+    if (!before || !Number.isFinite(before.score)) return true
+    const delta = Math.abs(row.score - before.score)
+    return delta / Math.max(1, before.score) > 0.2
+  })
+  const next = {}
+  for (const row of ranked) next[row.target] = { score: row.score, rssMB: row.rssMB }
+  if (!changed) {
+    // keep the last order while scores are stable
+    const order = Object.keys(previous)
+    ranked.sort((a, b) => order.indexOf(a.target) - order.indexOf(b.target))
+  }
+  return { rows: ranked.slice(0, Math.max(1, limit)), nextRanking: next }
+}
+
 /** Named byte formatting used by the panel/tool text. */
 export function formatBytes(bytes) {
   const value = Number(bytes)

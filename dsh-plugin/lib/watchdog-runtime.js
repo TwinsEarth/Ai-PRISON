@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import v8 from 'node:v8'
 import crypto from 'node:crypto'
+import { spawn } from 'node:child_process'
 import { watchdogState, MAX_SAMPLES, MAX_INCIDENTS } from './watchdog-state.js'
 import { probeBudget } from './budget-probe.js'
 import { createTamperMonitor } from './tamper-monitor.js'
@@ -20,6 +21,7 @@ import {
   operationWeight,
   parseCrashLog,
   thresholdsFor,
+  rankTopPlugins,
   topOperations,
 } from './watchdog-policy.js'
 
@@ -210,6 +212,63 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     persist(true)
   }
 
+  const RSS_INTERVAL_MS = 60_000
+  let rssTimer = null
+  let rssScanning = false
+
+  function scanChildRss() {
+    if (process.platform !== 'win32' || rssScanning) return
+    const manager = refs.manager
+    if (!manager || typeof manager.listBundles !== 'function') return
+    rssScanning = true
+    const profileLiteral = String(profileDir).replace(/'/g, "''")
+    const script = [
+      "$ErrorActionPreference='SilentlyContinue'",
+      "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -like '*node_modules*' -and $_.CommandLine -like '*" + profileLiteral + "*' } | ForEach-Object { ($_.ProcessId.ToString() + '|' + [string]$_.WorkingSetSize + '|' + $_.CommandLine) }",
+    ].join('; ')
+    let output = ''
+    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
+    child.stdout.on('data', (chunk) => {
+      output += String(chunk)
+    })
+    child.on('error', () => {
+      rssScanning = false
+    })
+    child.on('exit', () => {
+      rssScanning = false
+      void manager
+        .listBundles()
+        .then((rows) => {
+          const enabled = rows.filter((row) => row.enabled && !EXEMPT_TARGETS.has(row.name)).map((row) => row.name)
+          const totals = new Map()
+          for (const line of output.split('\n')) {
+            const parts = line.trim().split('|')
+            if (parts.length < 3) continue
+            const bytes = Number(parts[1]) || 0
+            const commandLine = parts.slice(2).join('|')
+            for (const name of enabled) {
+              if (commandLine.includes('node_modules' + path.sep + name) || commandLine.includes('node_modules/' + name)) {
+                totals.set(name, (totals.get(name) || 0) + bytes)
+                break
+              }
+            }
+          }
+          const rss = { ...(watchdogState.rss || {}) }
+          for (const [name, bytes] of totals) rss[name] = bytes
+          watchdogState.rss = rss
+          watchdogState.rssAt = new Date().toISOString()
+        })
+        .catch(() => {})
+    })
+  }
+
+  function startRssScanner() {
+    if (rssTimer || process.platform !== 'win32') return
+    const timer = setTimeout(scanChildRss, 5000)
+    if (typeof timer.unref === 'function') timer.unref()
+    rssTimer = setInterval(scanChildRss, RSS_INTERVAL_MS)
+    if (typeof rssTimer.unref === 'function') rssTimer.unref()
+  }
   function persist(force = false) {
     const now = Date.now()
     if (!force && now - lastFlush < FLUSH_MS) return
@@ -748,6 +807,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
         refs.manager = child.pluginManager || (typeof child.get === 'function' ? child.get('pluginManager') : null)
         if (refs.manager) {
           void reapplyQuarantine()
+          startRssScanner()
           const probeTimer = setTimeout(() => {
             void scheduleProbe()
           }, Number(config.probeDelayMs) > 0 ? Number(config.probeDelayMs) : 30_000)
@@ -882,6 +942,8 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     disableTarget,
     releaseTarget,
     dispose() {
+      if (rssTimer) clearInterval(rssTimer)
+      rssTimer = null
       while (cleanups.length > 0) {
         const disposer = cleanups.pop()
         try {
@@ -894,29 +956,28 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
   }
 }
 
-/** Merge live operation estimates with measured module-load budgets (measured wins). */
+/** Top5 v2: measured + estimate + child RSS with EWMA smoothing and rank hysteresis. */
 function mergedTop(state, limit) {
   const operations = topOperations(state.operations, 50)
-  const measured = []
-  for (const [target, entry] of Object.entries(state.budgets || {})) {
-    if (!entry || entry.error || entry.moduleLoadMB === undefined) continue
-    const existing = operations.find((row) => row.target === target)
-    measured.push({
-      target,
-      count: existing ? existing.count : 0,
-      estimateMB: entry.moduleLoadMB,
-      lastAt: entry.measuredAt || (existing ? existing.lastAt : null),
-      version: entry.version || (existing ? existing.version : null),
-      source: 'measured',
-      measuredAt: entry.measuredAt || null,
-    })
-  }
-  const others = operations
-    .filter((row) => !measured.some((entry) => entry.target === row.target))
-    .map((row) => ({ ...row, source: 'estimate' }))
-  return [...measured, ...others].sort((a, b) => b.estimateMB - a.estimateMB || b.count - a.count).slice(0, Math.max(1, limit))
+  const { rows, nextRanking } = rankTopPlugins({
+    operations,
+    budgets: state.budgets || {},
+    rss: state.rss || {},
+    previous: state.ranking || {},
+    limit,
+  })
+  state.ranking = nextRanking
+  return rows.map((row) => ({
+    target: row.target,
+    count: row.count || 0,
+    estimateMB: row.moduleLoadMB || row.operationMB || 0,
+    rssMB: row.rssMB || 0,
+    totalMB: row.score,
+    lastAt: row.measuredAt || null,
+    version: row.version || null,
+    source: row.source,
+  }))
 }
-
 /** Serialisable snapshot shared by the tool and the panel route. */
 export function watchdogSnapshot() {
   const s = watchdogState
@@ -950,6 +1011,8 @@ export function watchdogSnapshot() {
     baseline: s.baseline ? { at: s.baseline.at, runId: s.baseline.runId, bundles: s.baseline.bundles } : null,
     budgets: s.budgets,
     tamper: s.tamper || null,
+    rss: s.rss || {},
+    rssAt: s.rssAt || null,
     incidents: s.incidents.slice(-20),
     generatedAt: new Date().toISOString(),
   }
