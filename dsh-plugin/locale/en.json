@@ -17,5 +17,6 @@
   "watchdog.plans": "Crash plans (dry-run)",
   "watchdog.noPlans": "No crash attribution plans.",
   "watchdog.baseline": "Clean baseline: {at}",
-  "watchdog.tamper": "Profile watch: {n} critical file(s), last check {at}"
+  "watchdog.tamper": "Profile watch: {n} critical file(s), last check {at}",
+  "watchdog.measure": "Measure plugin budgets now"
 }

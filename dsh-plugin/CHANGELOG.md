@@ -2,6 +2,27 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.4.4] — 2026-11-18
+
+### Fixed — per-plugin budget probe actually works end to end
+
+- The probe now covers **every enabled, non-exempt bundle without a current
+  measurement** (not only plugins installed/enabled in the last 30 minutes),
+  scheduled after boot (max 5 per run) and retried after failures (error entries
+  older than 10 minutes, up to 5 attempts).
+- Budgets are version-aware: an entry measured for another version, without a
+  version, older than 7 days, or failed is treated as stale and re-measured.
+- A manual "Measure plugin budgets now" button in the Enforcement card and a
+  `probe` action on the watchdog route run the queue immediately (up to 15
+  targets) and report `probeProgress`.
+- The measured module-load MB **wins over operation estimates in Top5** and is
+  labelled `source: "measured"`; operation-derived rows stay `estimate`.
+- >500 MB still quarantines, closes and queues the plugin in
+  `pending-boot.json`; 300–500 MB records a warning only.
+- Tests: `test/watchdog-budget.test.mjs` covers the 600 MB quarantine path,
+  the 420 MB warning path with measured Top5, and failed-probe retry counting.
+
+## [1.4.3] — 2026-11-18
 ## [1.4.3] — 2026-11-18
 
 ### Added — profile tamper monitor (requirement 3, the missing half)

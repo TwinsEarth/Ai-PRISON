@@ -515,18 +515,52 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     }
   }
 
-  async function probeOne(name) {
-    const result = await probeBudget({ profileDir, packageName: name })
-    if (!result.ok) {
-      watchdogState.budgets[name] = { error: String(result.error || 'probe-failed').slice(0, 300), measuredAt: new Date().toISOString(), source: 'module-load-probe' }
-      persist(true)
-      return
+  const probeFn = typeof config.probe === 'function' ? config.probe : probeBudget
+  const probeMax = Number(config.probeMax) > 0 ? Number(config.probeMax) : 5
+  const probeRetryMs = Number(config.probeRetryMs) > 0 ? Number(config.probeRetryMs) : 10 * 60 * 1000
+  const probeMaxAgeMs = 7 * 24 * 3600 * 1000
+
+  function budgetState(name, version) {
+    const entry = watchdogState.budgets[name]
+    if (!entry) return 'missing'
+    if (entry.error) {
+      const age = Date.now() - Date.parse(entry.measuredAt || 0)
+      return age > probeRetryMs && (Number(entry.attempts) || 0) < 5 ? 'retry' : 'error'
     }
-    watchdogState.budgets[name] = { moduleLoadMB: result.moduleLoadMB, rssMB: result.rssMB, ms: result.ms, measuredAt: new Date().toISOString(), source: 'module-load-probe' }
+    if (entry.moduleLoadMB === undefined) return 'stale'
+    if (!entry.version || (version && entry.version !== version)) return 'stale'
+    if (Date.now() - Date.parse(entry.measuredAt || 0) > probeMaxAgeMs) return 'stale'
+    return 'ok'
+  }
+
+  async function probeOne(name, version) {
+    const previous = watchdogState.budgets[name] || {}
+    watchdogState.probeProgress = { ...(watchdogState.probeProgress || { done: 0, total: 0 }), current: name }
+    const result = await probeFn({ profileDir, packageName: name })
+    if (!result || !result.ok) {
+      watchdogState.budgets[name] = {
+        error: String((result && result.error) || 'probe-failed').slice(0, 300),
+        measuredAt: new Date().toISOString(),
+        version: version || previous.version || null,
+        attempts: (Number(previous.attempts) || 0) + 1,
+        source: 'module-load-probe',
+      }
+      persist(true)
+      return { ok: false }
+    }
+    watchdogState.budgets[name] = {
+      moduleLoadMB: result.moduleLoadMB,
+      rssMB: result.rssMB,
+      ms: result.ms,
+      measuredAt: new Date().toISOString(),
+      version: version || null,
+      attempts: (Number(previous.attempts) || 0) + 1,
+      source: 'module-load-probe',
+    }
     const thresholds = watchdogState.thresholds
     const mb = result.moduleLoadMB
     if (thresholds && mb >= Math.round(thresholds.singleBlock / (1024 * 1024))) {
-      appendIncident({ kind: 'plugin-budget', target: name, level: 'block', detail: '启动实测 ' + mb + ' MB > 500 MB，建议禁止该插件' })
+      appendIncident({ kind: 'plugin-budget', target: name, level: 'block', detail: '启动实测 ' + mb + ' MB > 500 MB，禁止该插件' })
       if (watchdogState.enforce) {
         watchdogState.quarantine.set(name, { reason: 'budget', level: 'L1', at: new Date().toISOString(), release: 'manual', evidence: mb + ' MB > 500 MB' })
         void disableTarget(name, 'budget-over-500MB')
@@ -536,18 +570,18 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       appendIncident({ kind: 'plugin-budget', target: name, level: 'warn', detail: '启动实测 ' + mb + ' MB > 300 MB，仅提醒' })
     }
     persist(true)
+    return { ok: true }
   }
 
-  async function scheduleProbe() {
-    if (watchdogState.probeStarted) return
-    watchdogState.probeStarted = true
+  async function scheduleProbe({ force = false } = {}) {
+    if (watchdogState.probeRunning) return watchdogState.probeProgress
     const manager = refs.manager
-    if (!manager || typeof manager.listBundles !== 'function') return
+    if (!manager || typeof manager.listBundles !== 'function') return null
     let rows
     try {
       rows = await manager.listBundles()
     } catch {
-      return
+      return null
     }
     const recent = new Set()
     const cutoff = Date.now() - 30 * 60 * 1000
@@ -558,14 +592,25 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       if (Date.parse(operation.time || 0) < cutoff) continue
       recent.add(operation.target)
     }
-    const targets = rows
-      .filter((row) => row.enabled && !EXEMPT_TARGETS.has(row.name) && !watchdogState.budgets[row.name] && recent.has(row.name))
-      .map((row) => row.name)
-      .slice(0, 5)
-    for (const name of targets) {
+    const candidates = rows
+      .filter((row) => row.enabled && !EXEMPT_TARGETS.has(row.name))
+      .map((row) => ({ name: row.name, version: row.version ? String(row.version) : '', state: budgetState(row.name, row.version ? String(row.version) : '') }))
+      .filter((candidate) => candidate.state !== 'ok')
+      .sort((a, b) => (recent.has(b.name) ? 1 : 0) - (recent.has(a.name) ? 1 : 0))
+      .slice(0, force ? Math.max(probeMax, Number(config.probeMaxForce) > 0 ? Number(config.probeMaxForce) : 15) : probeMax)
+    watchdogState.probeProgress = { done: 0, total: candidates.length, current: null, finishedAt: null }
+    if (candidates.length === 0) return watchdogState.probeProgress
+    watchdogState.probeRunning = true
+    for (const candidate of candidates) {
       if (watchdogState.waterline !== 'ok') break
-      await probeOne(name)
+      const outcome = await probeOne(candidate.name, candidate.version)
+      watchdogState.probeProgress = { ...watchdogState.probeProgress, done: watchdogState.probeProgress.done + 1, current: candidate.name, lastOk: Boolean(outcome && outcome.ok) }
+      if (candidates.length > 1) await new Promise((resolve) => setTimeout(resolve, Number(config.probeGapMs) >= 0 ? Number(config.probeGapMs) : 1500))
     }
+    watchdogState.probeProgress = { ...watchdogState.probeProgress, current: null, finishedAt: new Date().toISOString() }
+    watchdogState.probeRunning = false
+    persist(true)
+    return watchdogState.probeProgress
   }
 
   // ---- crash attribution and dry-run plans (requirements 3 & 4) -----------
@@ -737,6 +782,10 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
                   }
                   const action = typeof body.action === 'string' ? body.action : ''
                   const target = typeof body.target === 'string' ? body.target : ''
+                  if (action === 'probe') {
+                    const progress = await scheduleProbe({ force: true })
+                    return Response.json({ ok: true, progress })
+                  }
                   if (action === 'confirm-pause') {
                     watchdogState.graceUntil = Date.now() + PAUSE_GRACE_MS
                     appendIncident({ kind: 'pause-confirmed', detail: `用户二次确认继续插件操作（宽限 10 分钟）` })
@@ -766,6 +815,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     snapshot: watchdogSnapshot,
     sample,
     readCrashLogs,
+    probeNow: (options) => scheduleProbe(options),
     tamperCheck: (options) => {
       if (!tamper) return null
       const result = tamper.checkNow(options)
@@ -785,6 +835,29 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       }
     },
   }
+}
+
+/** Merge live operation estimates with measured module-load budgets (measured wins). */
+function mergedTop(state, limit) {
+  const operations = topOperations(state.operations, 50)
+  const measured = []
+  for (const [target, entry] of Object.entries(state.budgets || {})) {
+    if (!entry || entry.error || entry.moduleLoadMB === undefined) continue
+    const existing = operations.find((row) => row.target === target)
+    measured.push({
+      target,
+      count: existing ? existing.count : 0,
+      estimateMB: entry.moduleLoadMB,
+      lastAt: entry.measuredAt || (existing ? existing.lastAt : null),
+      version: entry.version || (existing ? existing.version : null),
+      source: 'measured',
+      measuredAt: entry.measuredAt || null,
+    })
+  }
+  const others = operations
+    .filter((row) => !measured.some((entry) => entry.target === row.target))
+    .map((row) => ({ ...row, source: 'estimate' }))
+  return [...measured, ...others].sort((a, b) => b.estimateMB - a.estimateMB || b.count - a.count).slice(0, Math.max(1, limit))
 }
 
 /** Serialisable snapshot shared by the tool and the panel route. */
@@ -810,8 +883,9 @@ export function watchdogSnapshot() {
     graceUntil: s.graceUntil,
     frozenAt: s.frozenAt,
     samples: s.samples.slice(-30),
-    operations: topOperations(s.operations, 10),
-    topFive: topOperations(s.operations, 5),
+    operations: mergedTop(s, 10),
+    topFive: mergedTop(s, 5),
+    probeProgress: s.probeProgress || null,
     quarantine,
     plans: s.plans.slice(-5),
     escalation: { level: s.escalation.level, crashes: s.escalation.crashes.slice(-10) },
