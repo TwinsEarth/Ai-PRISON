@@ -2,6 +2,21 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.5.1] — 2026-11-18
+
+### Fixed — Top5 v2 child RSS attribution never matched
+
+- The scanner filtered process command lines by the profile path, which matched
+  the host and the local subprocess runner but not plugin children, and it built
+  Windows needles from `@scope/name` without converting the scope separator.
+- It now scans every process with a command line, skips the host itself and
+  `dsh-desktop-host` children, and matches
+  `node_modules\\@scope\\name` / `node_modules/@scope/name` for each enabled
+  plugin, so `xray-core`, the w2m runner and similar children are attributed.
+- `rssAt` is written even when nothing matches, and `rssScan: false` disables the
+  scan.
+
+## [1.5.0] — 2026-11-18
 ## [1.5.0] — 2026-11-18
 
 ### Changed — profile tamper monitor is dry-run (observe) by default

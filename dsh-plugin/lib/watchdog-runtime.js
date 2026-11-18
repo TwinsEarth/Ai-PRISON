@@ -221,19 +221,14 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     const manager = refs.manager
     if (!manager || typeof manager.listBundles !== 'function') return
     rssScanning = true
-    const profileLiteral = String(profileDir).replace(/'/g, "''")
     const script = [
       "$ErrorActionPreference='SilentlyContinue'",
-      "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -like '*node_modules*' -and $_.CommandLine -like '*" + profileLiteral + "*' } | ForEach-Object { ($_.ProcessId.ToString() + '|' + [string]$_.WorkingSetSize + '|' + $_.CommandLine) }",
+      "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine } | ForEach-Object { ($_.ProcessId.ToString() + '|' + [string]$_.WorkingSetSize + '|' + $_.CommandLine) }",
     ].join('; ')
     let output = ''
     const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
-    child.stdout.on('data', (chunk) => {
-      output += String(chunk)
-    })
-    child.on('error', () => {
-      rssScanning = false
-    })
+    child.stdout.on('data', (chunk) => { output += String(chunk) })
+    child.on('error', () => { rssScanning = false })
     child.on('exit', () => {
       rssScanning = false
       void manager
@@ -244,10 +239,14 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
           for (const line of output.split('\n')) {
             const parts = line.trim().split('|')
             if (parts.length < 3) continue
+            const pid = Number(parts[0])
             const bytes = Number(parts[1]) || 0
             const commandLine = parts.slice(2).join('|')
+            if (pid === process.pid || commandLine.includes('dsh-desktop-host')) continue
             for (const name of enabled) {
-              if (commandLine.includes('node_modules' + path.sep + name) || commandLine.includes('node_modules/' + name)) {
+              const winNeedle = 'node_modules' + path.sep + name.split('/').join(path.sep)
+              const posixNeedle = 'node_modules/' + name
+              if (commandLine.includes(winNeedle) || commandLine.includes(posixNeedle)) {
                 totals.set(name, (totals.get(name) || 0) + bytes)
                 break
               }
@@ -263,7 +262,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
   }
 
   function startRssScanner() {
-    if (rssTimer || process.platform !== 'win32') return
+    if (rssTimer || process.platform !== 'win32' || watchdogState.config.rssScan === false) return
     const timer = setTimeout(scanChildRss, 5000)
     if (typeof timer.unref === 'function') timer.unref()
     rssTimer = setInterval(scanChildRss, RSS_INTERVAL_MS)
