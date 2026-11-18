@@ -214,6 +214,11 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
           baselineAt: snapshot.baseline ? snapshot.baseline.at : null,
           budgets: snapshot.budgets,
           tamper: snapshot.tamper,
+          rss: snapshot.rss,
+          rssAt: snapshot.rssAt,
+          rssError: snapshot.rssError,
+          rssStats: snapshot.rssStats,
+          rssServiceError: snapshot.rssServiceError,
           operations: snapshot.operations,
           incidents: snapshot.incidents,
           note: snapshot.enforce

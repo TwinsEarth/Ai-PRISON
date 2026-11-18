@@ -28,8 +28,8 @@
       "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzNiIgaGVpZ2h0PSIzNiIgdmlld0JveD0iMCAwIDM2IDM2IiBmaWxsPSJub25lIj4KICA8cGF0aCBkPSJNMTggNC40IDI5LjQgOXY5LjFjMCA2LjctMTEuNCAxMy4yLTExLjQgMTMuMlM2LjYgMjQuNyA2LjYgMTguMVY5eiIgc3Ryb2tlPSIjMzM0MTU1IiBzdHJva2Utd2lkdGg9IjIuMiIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik0xNCAxMi42djExLjJNMTggMTEuNHYxMy40TTIyIDEyLjZ2MTEuMiIgc3Ryb2tlPSIjMzM0MTU1IiBzdHJva2Utd2lkdGg9IjIuMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGNpcmNsZSBjeD0iMTgiIGN5PSIyNy40IiByPSIyLjEiIGZpbGw9IiMzMzQxNTUiLz4KPC9zdmc+",
       "versions": [
         {
-          "version": "1.5.3",
-          "publishTimestamp": 1795007562,
+          "version": "1.5.4",
+          "publishTimestamp": 1795008173,
           "source": {
             "type": "npm",
             "registry": "https://registry.npmjs.org"

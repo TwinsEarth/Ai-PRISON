@@ -281,6 +281,12 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       baseline: watchdogState.baseline,
       budgets: watchdogState.budgets,
       quarantine: [...watchdogState.quarantine].map(([target, entry]) => ({ target, ...entry })),
+      rss: watchdogState.rss || {},
+      rssAt: watchdogState.rssAt || null,
+      rssError: watchdogState.rssError || null,
+      rssStats: watchdogState.rssStats || null,
+      rssServiceError: watchdogState.rssServiceError || null,
+      rssAttempts: watchdogState.rssAttempts || 0,
       migratedTamperQuarantine: tamperMigrationDone,
     }
     try {
@@ -298,6 +304,10 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
       if (parsed.escalation && Array.isArray(parsed.escalation.crashes)) watchdogState.escalation = { crashes: parsed.escalation.crashes.slice(-50), level: parsed.escalation.level || 'L0' }
       if (parsed.baseline && Array.isArray(parsed.baseline.bundles)) watchdogState.baseline = parsed.baseline
       if (parsed.budgets && typeof parsed.budgets === 'object') watchdogState.budgets = parsed.budgets
+      if (parsed.rss && typeof parsed.rss === 'object') watchdogState.rss = parsed.rss
+      if (parsed.rssAt) watchdogState.rssAt = parsed.rssAt
+      if (parsed.rssStats) watchdogState.rssStats = parsed.rssStats
+      watchdogState.rssAttempts = Number(parsed.rssAttempts) || 0
       tamperMigrationDone = parsed.migratedTamperQuarantine === true
       if (Array.isArray(parsed.quarantine)) {
         let dropped = 0

@@ -2,6 +2,16 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.5.4] — 2026-11-18
+
+### Fixed — RSS diagnostics were invisible
+
+- `state.json` and `ai_prison_watchdog_status` now carry `rss`, `rssAt`,
+  `rssError`, `rssStats`, `rssServiceError` and `rssAttempts`, and the values are
+  restored on reload. Before this, a working (or failing) scan could not be
+  observed outside the panel route.
+
+## [1.5.3] — 2026-11-18
 ## [1.5.3] — 2026-11-18
 
 ### Fixed — CI
