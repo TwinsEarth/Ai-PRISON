@@ -2,6 +2,23 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.5.2] — 2026-11-18
+
+### Fixed — child RSS scan is observable and prefers the Host subprocess service
+
+- The scan now runs through `ctx.subprocess` (collected stdout, abort signal,
+  grace) and falls back to a direct spawn only when that service is absent;
+  both paths share one parser (`lib/rss.js`).
+- Failures are no longer silent: the watchdog records `rssError`, sets
+  `degraded`, emits one `rss-scan-failed` incident per run and stamps `rssAt`
+  on every attempt. The service error is kept in `rssServiceError`.
+- The parser hardens matching (`node_modules\\@scope\\name` and
+  `node_modules/@scope/name`), skips the host/skip marker and exposes
+  `rssStats {lines, matched, names}`.
+- Tests: `test/rss.test.mjs` covers Windows/posix paths, host exclusion and
+  self-pid exclusion.
+
+## [1.5.1] — 2026-11-18
 ## [1.5.1] — 2026-11-18
 
 ### Fixed — Top5 v2 child RSS attribution never matched

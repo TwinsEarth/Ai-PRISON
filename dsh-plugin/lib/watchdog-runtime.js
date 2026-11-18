@@ -9,6 +9,7 @@ import { probeBudget } from './budget-probe.js'
 import { createTamperMonitor } from './tamper-monitor.js'
 import { remediationFor } from './remediation.js'
 import { notify } from './notifier.js'
+import { startRssScannerV2 } from './rss-scan.js'
 import {
   attributeCrash,
   classifyWaterline,
@@ -806,7 +807,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
         refs.manager = child.pluginManager || (typeof child.get === 'function' ? child.get('pluginManager') : null)
         if (refs.manager) {
           void reapplyQuarantine()
-          startRssScanner()
+          startRssScannerV2({ ctx, refs, profileDir, watchdogState, appendIncident, exemptTargets: EXEMPT_TARGETS })
           const probeTimer = setTimeout(() => {
             void scheduleProbe()
           }, Number(config.probeDelayMs) > 0 ? Number(config.probeDelayMs) : 30_000)
@@ -1012,6 +1013,9 @@ export function watchdogSnapshot() {
     tamper: s.tamper || null,
     rss: s.rss || {},
     rssAt: s.rssAt || null,
+    rssError: s.rssError || null,
+    rssStats: s.rssStats || null,
+    rssServiceError: s.rssServiceError || null,
     incidents: s.incidents.slice(-20),
     generatedAt: new Date().toISOString(),
   }
