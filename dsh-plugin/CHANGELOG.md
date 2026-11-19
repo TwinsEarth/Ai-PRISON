@@ -2,6 +2,16 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.7.4] — 2026-11-19
+
+### Changed
+
+- Enforcement card: the Top5 action button now reads **立即缉拿 / Arrest now**
+  (previously 立即关闭 / Close now), and its confirmation prompt uses the same
+  wording. The underlying action is unchanged (close the plugin); only the
+  AI-Prison-themed label changed.
+
+## [1.7.3] — 2026-11-19
 ## [1.7.3] — 2026-11-19
 
 ### Added
