@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { resolveToolCwd } from '../lib/tools.js'
+import { registerToolDefinition, resolveToolCwd } from '../lib/tools.js'
 
 function fakeCtx({ sessions, workingDirectory } = {}) {
   return {
@@ -36,4 +36,30 @@ test('resolveToolCwd falls back to the Host default directory, then the process 
   assert.equal(resolveToolCwd(ctxDefault, { agent: { id: 'missing' } }), 'C:/launch')
   assert.equal(resolveToolCwd(fakeCtx({}), { agent: { id: 'missing' } }), process.cwd())
   assert.equal(resolveToolCwd(undefined, undefined), process.cwd())
+})
+
+test('tools register through the official plain-definition path first', () => {
+  const calls = []
+  const tools = { register: (definition) => calls.push(definition) }
+  const mode = registerToolDefinition(tools, { name: 'x' }, { defineTool: () => ({ wrapped: true }) })
+  assert.equal(mode, 'plain')
+  assert.deepEqual(calls, [{ name: 'x' }])
+})
+
+test('defineTool is used only when the plain registration fails', () => {
+  const calls = []
+  const tools = {
+    register(definition) {
+      if (!definition.wrapped) throw new Error('legacy shape')
+      calls.push(definition)
+    },
+  }
+  const mode = registerToolDefinition(tools, { name: 'x' }, { defineTool: (definition) => ({ wrapped: definition }) })
+  assert.equal(mode, 'fallback')
+  assert.deepEqual(calls, [{ wrapped: { name: 'x' } }])
+})
+
+test('a plain registration failure surfaces when no defineTool fallback exists', () => {
+  const tools = { register() { throw new Error('boom') } }
+  assert.throws(() => registerToolDefinition(tools, { name: 'x' }), /boom/)
 })

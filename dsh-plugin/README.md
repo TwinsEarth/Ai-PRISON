@@ -128,6 +128,15 @@ tarball.
 On a platform without a bundled build, point `cliPath` / `AIPRISON_BIN` at a
 binary built from `cmd/aiprison`.
 
+## Supply chain
+
+Tool registration uses the official `ctx.tools.register(plainDefinition)` seam
+(`defineTool` remains only as a legacy fallback), and release artifacts get a
+GitHub artifact attestation. Code signing (Windows Authenticode, macOS
+notarization, Linux detached signatures) needs a certificate/upstream decision;
+see [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md) for the concrete options and
+verification commands.
+
 ## Development
 
 ```bash

@@ -97,17 +97,39 @@ function toolResult(payload) {
   return JSON.stringify(payload, null, 2)
 }
 
+/**
+ * Register one tool definition.
+ *
+ * The official Host API is `ctx.tools.register(definition)` and accepts a plain
+ * ToolDefinition (name/description/parameters/output/execute). `defineTool` from
+ * @deepseek-ai/dsh-tools is only a compatibility fallback for older harness
+ * builds; resolving it by guessing an installation path must never be required.
+ */
+export function registerToolDefinition(tools, definition, { defineTool } = {}) {
+  try {
+    tools.register(definition)
+    return 'plain'
+  } catch (error) {
+    if (typeof defineTool !== 'function') throw error
+    tools.register(defineTool(definition))
+    return 'fallback'
+  }
+}
+
 export async function installTools({ ctx, config = {}, logger } = {}) {
   if (!ctx || typeof ctx.inject !== 'function') {
     logger?.warn?.('ctx.inject 不可用，跳过 aiprison_* 工具注册')
     return false
   }
-  const loaded = await loadDefineTool()
-  if (!loaded) {
-    logger?.warn?.('无法从 DSH 安装目录解析 @deepseek-ai/dsh-tools，aiprison_* 工具未注册；面板与其余功能不受影响')
-    return false
+  // Official API first: ctx.tools.register accepts a plain ToolDefinition.
+  // defineTool is loaded lazily only as a fallback for older harness builds.
+  let defineTool
+  try {
+    const loaded = await loadDefineTool()
+    defineTool = loaded && loaded.defineTool
+  } catch {
+    defineTool = undefined
   }
-  const { defineTool } = loaded
   const stringOutput = {
     schema: { type: 'string' },
     render: (_args, value) => [{ type: 'text', text: String(value) }],
@@ -120,7 +142,8 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
   ctx.inject(['tools'], (child) => {
     const register = (definition) => {
       try {
-        child.tools.register(defineTool(definition))
+        const mode = registerToolDefinition(child.tools, definition, { defineTool })
+        if (mode === 'fallback') logger?.info?.(`工具 ${definition.name} 使用 defineTool 兼容路径注册`)
       } catch (error) {
         logger?.warn?.(`注册工具 ${definition.name} 失败：${String(error && error.message)}`)
       }
