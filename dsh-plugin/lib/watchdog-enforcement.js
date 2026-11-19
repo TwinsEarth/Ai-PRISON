@@ -188,6 +188,13 @@ export function createEnforcement({ watchdogState, refs, dataDir, journalDir, ex
     return Math.round(opMB)
   }
 
+  /** True only when the occupancy came from a real measurement, not an operation estimate. */
+  function hasMeasuredMemory(target) {
+    const budget = watchdogState.budgets && watchdogState.budgets[target]
+    const moduleMB = budget && Number.isFinite(Number(budget.moduleLoadMB)) ? Number(budget.moduleLoadMB) : 0
+    const rssMB = watchdogState.rss ? (Number(watchdogState.rss[target]) || 0) / (1024 * 1024) : 0
+    return moduleMB > 0 || rssMB > 0
+  }
   /**
    * Plugin-prison memory tiers (single-plugin occupancy):
    *   300 MB warn · 500 MB throttle · 1000 MB force close ·
@@ -246,6 +253,13 @@ export function createEnforcement({ watchdogState, refs, dataDir, journalDir, ex
         evidence: '实测/估算 ' + mb + ' MB',
         remediation: remediationFor('memory'),
       })
+      if (tier === 'uninstall' && !hasMeasuredMemory(row.name)) {
+        await disableTarget(row.name, 'memory-uninstall-unverified')
+        summary.closed.push(row.name)
+        appendIncident({ kind: 'plugin-memory', level: 'close', target: row.name, mb, detail: '插件内存 ' + mb + ' MB 仅来自操作估算（无实测）；为避免误卸载，改为强制关闭' })
+        writePendingBoot({ level: 'L1', reason: 'memory', disable: [row.name], keep: [] })
+        continue
+      }
       if (tier === 'uninstall') {
         let removed = false
         if (typeof manager.removeBundle === 'function') {
