@@ -37,8 +37,8 @@ test('the patch documents every security-sensitive watchdog default', () => {
 })
 
 test('the patch still inserts exactly the two expected rows', () => {
-  assert.match(patch, /- id: ai-prison\n\s+name: '@twinsearth\/ai-prison-dsh-plugin'\n\s+config: \{\}/)
-  assert.match(patch, /- id: ai-prison-watchdog\n\s+name: '@twinsearth\/ai-prison-dsh-plugin\/watchdog'\n\s+config: \{\}/)
+  assert.match(patch, /- id: ai-prison\r?\n\s+name: '@twinsearth\/ai-prison-dsh-plugin'\r?\n\s+config: \{\}/)
+  assert.match(patch, /- id: ai-prison-watchdog\r?\n\s+name: '@twinsearth\/ai-prison-dsh-plugin\/watchdog'\r?\n\s+config: \{\}/)
   assert.doesNotMatch(patch, /disabled:\s*true/)
 })
 

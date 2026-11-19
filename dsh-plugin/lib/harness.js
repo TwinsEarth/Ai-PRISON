@@ -18,7 +18,7 @@ export function installationAnchors({ execPath = process.execPath, env = process
   // The entry module (argv[1]) often sits either directly in the runtime root
   // (…/app.asar/dsh/index.js) or in a subdirectory (…/dsh/dist/index.js). Both
   // are useful anchors when execPath no longer points at the installation.
-  const entry = typeof argv[1] === 'string' && path.isAbsolute(argv[1]) ? argv[1] : undefined
+  const entry = typeof argv[1] === 'string' && argv[1] ? argv[1] : undefined
   const entryDir = entry ? path.dirname(entry) : undefined
   const entryParent = entryDir ? path.dirname(entryDir) : undefined
   const entryLooksLikeDsh = (candidate) => Boolean(candidate) && /(^|[\\/])(app\.asar|dsh|dsh-runtime)([\\/]|$)/.test(candidate)

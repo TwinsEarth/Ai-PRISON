@@ -88,7 +88,8 @@ test('the market index advertises the same name, version and engine range', () =
   assert.ok(entry.versions[0].publishTimestamp > 1_700_000_000)
   assert.match(entry.icon, /^data:image\/svg\+xml;base64,/)
   const decoded = Buffer.from(entry.icon.split(',')[1], 'base64').toString('utf8')
-  assert.equal(decoded.trim(), fs.readFileSync(path.join(pluginRoot, 'icon.svg'), 'utf8').trim())
+  const normalizeSvg = (text) => String(text).replace(/\r\n/g, '\n').trim()
+  assert.equal(normalizeSvg(decoded), normalizeSvg(fs.readFileSync(path.join(pluginRoot, 'icon.svg'), 'utf8')))
 })
 
 test('bundled binaries for all six targets exist and are distinct builds', () => {

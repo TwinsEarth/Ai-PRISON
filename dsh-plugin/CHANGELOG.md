@@ -2,6 +2,24 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.7.2] — 2026-11-19
+
+### Fixed
+
+- Entry-based installation anchors accept a non-absolute `argv[1]`; the 1.7.1
+  tag accidentally shipped without this portability change, so the harness
+  tests failed on ubuntu CI.
+- `manifest.test.mjs` normalizes CRLF before comparing the embedded market icon
+  with `icon.svg`; `patch-docs.test.mjs` accepts `\r?\n` row separators, so a
+  Windows checkout with `autocrlf` no longer fails those assertions.
+
+### Note
+
+- 1.7.0 and 1.7.1 reached npm but their tag-triggered GitHub Releases failed on
+  the two test portability issues above; 1.7.2 is the complete three-channel
+  release.
+
+## [1.7.1] — 2026-11-19
 ## [1.7.1] — 2026-11-19
 
 ### Fixed
