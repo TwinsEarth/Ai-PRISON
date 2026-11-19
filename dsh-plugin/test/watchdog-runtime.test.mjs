@@ -186,3 +186,35 @@ test('operations on exempt targets never quarantine', async () => {
     fs.rmSync(dirs.dir, { recursive: true, force: true })
   }
 })
+
+test('enabling a quarantined plugin is closed again and raises a reminder', async () => {
+  resetWatchdogState()
+  const dirs = makeDirs()
+  const calls = []
+  const manager = {
+    async listBundles() {
+      return [{ name: '@x/jailed', version: '1.0.0', enabled: true }]
+    },
+    async setBundleEnabled(target, enabled) {
+      calls.push({ target, enabled })
+      return { target, enabled, application: 'applied', changed: true }
+    },
+  }
+  const { ctx, state } = makeCtx({ pluginManager: manager })
+  const watchdog = createWatchdog(ctx, { dataDir: dirs.state, logsDir: dirs.logs, journalDir: dirs.journal, sampleMs: 60_000 }, { info() {}, warn() {} })
+  try {
+    const { watchdogState } = await import('../lib/watchdog-state.js')
+    watchdogState.quarantine.set('@x/jailed', { reason: 'crash', level: 'L2', at: new Date().toISOString(), release: 'manual' })
+    const time = new Date().toISOString()
+    state.operationHandler({ id: 'op-q', time, reason: 'bundle', target: '@x/jailed', stage: 'enable', enabled: true, version: '1.0.0', phase: 'started' })
+    state.operationHandler({ id: 'op-q', time, reason: 'bundle', target: '@x/jailed', stage: 'enable', enabled: true, version: '1.0.0', phase: 'settled', application: 'applied', changed: true })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.ok(calls.some((call) => call.target === '@x/jailed' && call.enabled === false), 'the plugin is closed again')
+    const incident = watchdog.snapshot().incidents.find((entry) => entry.kind === 'quarantine-reminder')
+    assert.ok(incident, 'reminder incident recorded')
+    assert.match(incident.detail, /释放|假释/)
+  } finally {
+    watchdog.dispose()
+    fs.rmSync(dirs.dir, { recursive: true, force: true })
+  }
+})

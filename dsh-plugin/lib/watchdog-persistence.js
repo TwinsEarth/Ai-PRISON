@@ -95,7 +95,8 @@ export function createPersistence({ watchdogState, stateFile, incidentsFile }) {
 
   function appendIncident(incident) {
     const record = { at: new Date().toISOString(), mode: watchdogState.mode, ...incident }
-    if (watchdogState.config && watchdogState.config.notify === true && ['freeze', 'pause', 'quarantine', 'tamper', 'crash-enforced', 'budget'].includes(record.kind)) {
+    const notificationKinds = ['freeze', 'pause', 'quarantine', 'tamper', 'crash-enforced', 'budget', 'quarantine-reminder']
+    if ((record.notify === true || (watchdogState.config && watchdogState.config.notify === true)) && notificationKinds.includes(record.kind)) {
       try {
         notify(record)
       } catch {

@@ -124,6 +124,17 @@ export function createEnforcement({ watchdogState, refs, dataDir, journalDir, ex
       entry.lastApplication = operation.application || null
       watchdogState.operations.set(target, entry)
       const additive = operation.stage === 'install' || (operation.stage === 'enable' && operation.enabled !== false)
+      if (operation.stage === 'enable' && operation.enabled !== false && watchdogState.enforce && watchdogState.quarantine.has(target)) {
+        const quarantined = watchdogState.quarantine.get(target)
+        appendIncident({
+          kind: 'quarantine-reminder',
+          target,
+          level: quarantined.level,
+          notify: true,
+          detail: '请到，AI监狱释放该插件！再开启。（原因：' + quarantined.reason + '；本次开启已被立即关闭）',
+        })
+        void disableTarget(target, 'quarantined-enable')
+      }
       if (
         watchdogState.enforce
         && additive

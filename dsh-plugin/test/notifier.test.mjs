@@ -19,3 +19,13 @@ test('the notifier is rate limited per kind', () => {
   assert.equal(shouldNotify('freeze', now + 61_000), true)
   resetNotifierState()
 })
+
+test('the quarantine reminder has a notification title and body', async () => {
+  const { notificationFor, shouldNotify, resetNotifierState } = await import('../lib/notifier.js')
+  const message = notificationFor({ kind: 'quarantine-reminder', target: '@x/y', detail: '请到 AI 监狱释放该插件！再开启。' })
+  assert.ok(message)
+  assert.match(message.title, /隔离/)
+  assert.match(message.body, /假释|释放/)
+  resetNotifierState()
+  assert.equal(shouldNotify('quarantine-reminder'), true)
+})
