@@ -26,6 +26,8 @@ export const watchdogState = {
   frozenAt: null,
   /** target -> { count, estimateMB, lastAt, version, lastApplication } */
   operations: new Map(),
+  /** target -> { tier, mb, at, version } from the plugin-prison memory thresholds. */
+  memoryTiers: new Map(),
   /** target -> { reason, level, at, evidence, release: 'restart'|'manual' } */
   quarantine: new Map(),
   /** target -> ms timestamp until which operation events are our own doing. */
@@ -67,6 +69,7 @@ export function resetWatchdogState(overrides = {}) {
   watchdogState.graceUntil = null
   watchdogState.frozenAt = null
   watchdogState.operations = new Map()
+  watchdogState.memoryTiers = new Map()
   watchdogState.quarantine = new Map()
   watchdogState.suppressUntil = new Map()
   watchdogState.budgets = {}

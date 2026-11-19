@@ -2,6 +2,27 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.7.6] — 2026-11-19
+
+### Added — per-plugin memory tiers in the plugin prison
+
+| Occupancy | Action |
+|---|---|
+| ≥ 300 MB | warning incident (`plugin-memory` warn) |
+| ≥ 500 MB | throttle: add-memory plugin operations are denied (target growth ≤ 1 MB/s) |
+| ≥ 1000 MB | force close (quarantine + pending-boot) |
+| ≥ 2000 MB | force uninstall via `pluginManager.removeBundle` (fallback: force close) |
+| ≥ 3000 MB | close every third-party plugin (official/installation plugins excluded) |
+
+- The panel Enforcement Top5 table gains a **memory tier** column with the current
+  occupancy; the incident list and remediation text explain each tier.
+- Occupancy uses the measured module-load budget plus child RSS when available,
+  falling back to the operation estimate. Actions only run in enforce mode;
+  observe mode records tier changes.
+- Tiers are recomputed after each heap sample; escalation is one-way per run
+  (a lower reading does not release a closed/uninstalled plugin).
+
+## [1.7.5] — 2026-11-19
 ## [1.7.5] — 2026-11-19
 
 ### Changed

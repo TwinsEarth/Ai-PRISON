@@ -93,6 +93,13 @@ window.__ModuleLoader__.load({
         'prison.estimate': 'Est.',
         'prison.plugin': 'Plugin',
         'prison.rss': 'Child RSS',
+        'watchdog.memoryTier': 'Memory tier',
+        'memoryTier.ok': 'Normal',
+        'memoryTier.warn': 'Warning',
+        'memoryTier.throttle': 'Throttled',
+        'memoryTier.close': 'Closed',
+        'memoryTier.uninstall': 'Uninstalled',
+        'memoryTier.all-third-party': 'All third-party',
         'prison.incidents': 'Recent incidents',
         'prison.empty': 'No quarantined plugins.',
         'prison.noestimates': 'No plugin operations observed yet.',
@@ -177,6 +184,13 @@ window.__ModuleLoader__.load({
         'prison.estimate': '估算',
         'prison.plugin': '插件',
         'prison.rss': '子进程 RSS',
+        'watchdog.memoryTier': '内存档位',
+        'memoryTier.ok': '正常',
+        'memoryTier.warn': '警告',
+        'memoryTier.throttle': '节流',
+        'memoryTier.close': '关闭',
+        'memoryTier.uninstall': '卸载',
+        'memoryTier.all-third-party': '全部第三方',
         'prison.incidents': '最近事件',
         'prison.empty': '没有被隔离的插件。',
         'prison.noestimates': '还没有观察到插件操作。',
@@ -310,6 +324,8 @@ window.__ModuleLoader__.load({
         h('path', { d: 'M14 12.6v11.2M18 11.4v13.4M22 12.6v11.2', stroke: '#334155', strokeWidth: 2.2, strokeLinecap: 'round' }),
       )
     }
+
+    const MEMORY_TIER_KEYS = { ok: 'memoryTier.ok', warn: 'memoryTier.warn', throttle: 'memoryTier.throttle', close: 'memoryTier.close', uninstall: 'memoryTier.uninstall', 'all-third-party': 'memoryTier.all-third-party' }
 
     function Pill({ tone, text }) {
       const palette = { ok: C.ok.color, info: '#2563eb', warn: '#b45309', error: C.error.color }
@@ -531,12 +547,14 @@ window.__ModuleLoader__.load({
               h('th', { style: C.th }, t('prison.plugin')),
               h('th', { style: C.th }, t('prison.estimate')),
               h('th', { style: C.th }, t('prison.rss')),
+              h('th', { style: C.th }, t('watchdog.memoryTier')),
               h('th', { style: C.th }, ''),
             )),
             h('tbody', null, topFive.map((row) => h('tr', { key: row.target },
               h('td', { style: { ...C.td, ...C.mono, fontSize: 11.5, wordBreak: 'break-all' } }, row.target),
               h('td', { style: C.td }, row.estimateMB + ' MB'),
               h('td', { style: C.td }, (row.rssMB || 0) + ' MB'),
+              h('td', { style: C.td }, t(MEMORY_TIER_KEYS[row.memoryTier] || MEMORY_TIER_KEYS.ok) + (row.memoryMB != null ? ' · ' + row.memoryMB + ' MB' : '')),
               h('td', { style: C.td }, h('button', { style: button, onClick: () => act('close', row.target, '立即缉拿 ' + row.target + ' ？') }, t('watchdog.close'))),
             ))),
           ),

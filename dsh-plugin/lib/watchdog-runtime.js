@@ -204,6 +204,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     onAfterSample: () => {
       maybeWriteBaseline()
       refreshTamperStatus()
+      void enforcement.enforceMemoryTiers()
     },
   })
 
@@ -306,6 +307,7 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     sample: sampler.sample,
     readCrashLogs: crash.readCrashLogs,
     probeNow: (options) => budget.scheduleProbe(options),
+    checkMemoryTiers: () => enforcement.enforceMemoryTiers(),
     tamperCheck: (options) => {
       if (!tamper) return null
       const result = tamper.checkNow(options)

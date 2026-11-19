@@ -76,6 +76,13 @@ test('the enforce and prison cards no longer fall back to raw keys', () => {
   }
 })
 
+test('memory tier labels exist in both dictionaries', () => {
+  for (const key of ['memoryTier.ok', 'memoryTier.warn', 'memoryTier.throttle', 'memoryTier.close', 'memoryTier.uninstall', 'memoryTier.all-third-party']) {
+    assert.ok(dictionaryBody('en').includes(`'${key}'`), `en has ${key}`)
+    assert.ok(dictionaryBody('zh').includes(`'${key}'`), `zh has ${key}`)
+  }
+})
+
 test('memory waterline band labels exist in both dictionaries', () => {
   for (const key of ['waterline.easy', 'waterline.normal', 'waterline.warn', 'waterline.danger']) {
     assert.ok(dictionaryBody('en').includes(`'${key}'`), `en has ${key}`)

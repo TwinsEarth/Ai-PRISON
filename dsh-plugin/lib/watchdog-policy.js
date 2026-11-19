@@ -15,6 +15,19 @@ export const GB = 1024 * MB
 
 export const FREEZE_MARGIN = 0.3 * GB
 export const HOT_OP_LIMIT = 5
+
+/** Plugin-prison memory tiers (single plugin occupancy, MB). */
+export const MEMORY_TIER_MB = Object.freeze({ warn: 300, throttle: 500, close: 1000, uninstall: 2000, allThirdParty: 3000 })
+
+export function memoryTierFor(mb) {
+  const value = Number(mb) || 0
+  if (value >= MEMORY_TIER_MB.allThirdParty) return 'all-third-party'
+  if (value >= MEMORY_TIER_MB.uninstall) return 'uninstall'
+  if (value >= MEMORY_TIER_MB.close) return 'close'
+  if (value >= MEMORY_TIER_MB.throttle) return 'throttle'
+  if (value >= MEMORY_TIER_MB.warn) return 'warn'
+  return 'ok'
+}
 export const ADDITIVE_ACTIONS = new Set(['set_plugin', 'set_bundle', 'install_bundle', 'remove_bundle', 'set_version_exemption'])
 export const READONLY_ACTIONS = new Set(['list_plugins', 'list_bundles', 'list_version_exemptions'])
 
@@ -87,6 +100,13 @@ export function decideToolGuard(execution, state) {
     }
   }
   if (READONLY_ACTIONS.has(action)) return undefined
+  const memoryTier = state.memoryTiers instanceof Map ? state.memoryTiers.get(target) : undefined
+  if (memoryTier && ['throttle', 'close', 'uninstall', 'all-third-party'].includes(memoryTier.tier)) {
+    return {
+      reason: "插件 " + target + " 内存档位 " + memoryTier.tier + "（" + memoryTier.mb + " MB）已限制增内存操作（增长目标 ≤1MB/s）；请先在面板“插件监狱”处理。",
+      info: { name: 'ai-prison-memory-tier', code: 'plugin-memory-throttled' },
+    }
+  }
   if (!ADDITIVE_ACTIONS.has(action)) return undefined
   const level = state.waterline
   if (level === 'frost') {

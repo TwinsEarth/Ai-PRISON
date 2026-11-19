@@ -71,9 +71,13 @@ export function watchdogSnapshot() {
     frozenAt: s.frozenAt,
     samples: s.samples.slice(-30),
     operations: mergedTop(s, 10),
-    topFive: mergedTop(s, 5),
+    topFive: mergedTop(s, 5).map((row) => {
+      const tier = s.memoryTiers instanceof Map ? s.memoryTiers.get(row.target) : undefined
+      return { ...row, memoryTier: tier ? tier.tier : 'ok', memoryMB: tier ? tier.mb : null }
+    }),
     probeProgress: s.probeProgress || null,
     quarantine,
+    memoryTiers: s.memoryTiers instanceof Map ? [...s.memoryTiers].map(([target, entry]) => ({ target, ...entry })) : [],
     plans: s.plans.slice(-5),
     escalation: { level: s.escalation.level, crashes: s.escalation.crashes.slice(-10) },
     crashFallback: s.crashFallback || 'enforce',

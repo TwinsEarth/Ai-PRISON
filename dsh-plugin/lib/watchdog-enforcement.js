@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { attributeCrash, hotOperationTriggered, mergeEstimate, operationWeight } from './watchdog-policy.js'
+import { attributeCrash, hotOperationTriggered, memoryTierFor, mergeEstimate, operationWeight } from './watchdog-policy.js'
 import { remediationFor } from './remediation.js'
 import { readJournalRecords } from './watchdog-core.js'
 
@@ -175,6 +175,112 @@ export function createEnforcement({ watchdogState, refs, dataDir, journalDir, ex
     }
   }
 
+  const TIER_RANK = { ok: 0, warn: 1, throttle: 2, close: 3, uninstall: 4, 'all-third-party': 5 }
+  let tierRunPromise = null
+
+  /** Best available single-plugin memory estimate: measured module load + child RSS, else operation estimate. */
+  function measuredMemoryMB(target) {
+    const budget = watchdogState.budgets && watchdogState.budgets[target]
+    const moduleMB = budget && Number.isFinite(Number(budget.moduleLoadMB)) ? Number(budget.moduleLoadMB) : 0
+    const rssMB = watchdogState.rss ? (Number(watchdogState.rss[target]) || 0) / (1024 * 1024) : 0
+    const opMB = (watchdogState.operations.get(target) || {}).estimateMB || 0
+    if (moduleMB > 0 || rssMB > 0) return Math.round(moduleMB + rssMB)
+    return Math.round(opMB)
+  }
+
+  /**
+   * Plugin-prison memory tiers (single-plugin occupancy):
+   *   300 MB warn · 500 MB throttle · 1000 MB force close ·
+   *   2000 MB force uninstall · 3000 MB close all third-party plugins.
+   * Enforce mode acts; observe mode only records the tier changes.
+   */
+  async function enforceMemoryTiers() {
+    if (tierRunPromise) return tierRunPromise
+    tierRunPromise = doEnforceMemoryTiers().finally(() => { tierRunPromise = null })
+    return tierRunPromise
+  }
+
+  async function doEnforceMemoryTiers() {
+    const manager = refs.manager
+    if (!manager || typeof manager.listBundles !== 'function') return null
+    let rows
+    try {
+      rows = await manager.listBundles()
+    } catch {
+      return null
+    }
+    const enabled = rows.filter((row) => row.enabled && !exemptions.has(row.name))
+    const summary = { checked: enabled.length, warned: [], throttled: [], closed: [], uninstalled: [], thirdParty: [] }
+    for (const row of enabled) {
+      const mb = measuredMemoryMB(row.name)
+      const tier = memoryTierFor(mb)
+      const previous = watchdogState.memoryTiers.get(row.name)
+      const previousRank = TIER_RANK[previous ? previous.tier : 'ok'] || 0
+      const rank = TIER_RANK[tier] || 0
+      if (tier === 'ok') {
+        if (previous) watchdogState.memoryTiers.delete(row.name)
+        continue
+      }
+      watchdogState.memoryTiers.set(row.name, { tier, mb, at: new Date().toISOString(), version: row.version || null })
+      if (!watchdogState.enforce) {
+        if (rank > previousRank) appendIncident({ kind: 'plugin-memory', level: tier, target: row.name, mb, detail: '插件内存 ' + mb + ' MB 达到 ' + tier + ' 档（observe：仅记录）' })
+        continue
+      }
+      if (rank <= previousRank) continue
+      if (tier === 'warn') {
+        summary.warned.push(row.name)
+        appendIncident({ kind: 'plugin-memory', level: 'warn', target: row.name, mb, detail: '插件内存 ' + mb + ' MB ≥ 300 MB：警告' })
+        continue
+      }
+      if (tier === 'throttle') {
+        summary.throttled.push(row.name)
+        appendIncident({ kind: 'plugin-memory', level: 'throttle', target: row.name, mb, detail: '插件内存 ' + mb + ' MB ≥ 500 MB：限制该插件的增内存操作（增长目标 ≤1 MB/s）' })
+        continue
+      }
+      // close (>=1000) / uninstall (>=2000) / all-third-party (>=3000)
+      watchdogState.quarantine.set(row.name, {
+        reason: 'memory',
+        level: 'L2',
+        at: new Date().toISOString(),
+        release: 'manual',
+        evidence: '实测/估算 ' + mb + ' MB',
+        remediation: remediationFor('memory'),
+      })
+      if (tier === 'uninstall') {
+        let removed = false
+        if (typeof manager.removeBundle === 'function') {
+          try {
+            const result = await manager.removeBundle(row.name)
+            removed = Boolean(result && result.application !== 'failed')
+          } catch (error) {
+            appendIncident({ kind: 'plugin-memory', level: 'uninstall', target: row.name, mb, detail: '强制卸载 ' + row.name + ' 失败：' + String((error && error.message) || error) + '；改为强制关闭' })
+          }
+        }
+        if (!removed) await disableTarget(row.name, 'memory-over-2000MB')
+        summary.uninstalled.push(row.name)
+        appendIncident({ kind: 'plugin-memory', level: 'uninstall', target: row.name, mb, detail: removed ? '插件内存 ' + mb + ' MB ≥ 2000 MB：已强制卸载' : '插件内存 ' + mb + ' MB ≥ 2000 MB：卸载失败，已强制关闭' })
+        writePendingBoot({ level: 'L1', reason: 'memory', disable: [row.name], keep: [] })
+        continue
+      }
+      await disableTarget(row.name, 'memory-over-' + tier)
+      summary.closed.push(row.name)
+      appendIncident({ kind: 'plugin-memory', level: tier, target: row.name, mb, detail: '插件内存 ' + mb + ' MB ≥ ' + (tier === 'all-third-party' ? 3000 : 1000) + ' MB：强制关闭' })
+      if (tier === 'all-third-party') {
+        for (const other of enabled) {
+          if (other.name === row.name || other.official === true || String(other.name).startsWith('@deepseek-ai/')) continue
+          if (watchdogState.quarantine.has(other.name)) continue
+          watchdogState.quarantine.set(other.name, { reason: 'memory', level: 'L2', at: new Date().toISOString(), release: 'manual', evidence: '同批第三方关闭（' + row.name + ' ≥3000 MB）', remediation: remediationFor('memory') })
+          await disableTarget(other.name, 'memory-all-third-party')
+          summary.thirdParty.push(other.name)
+        }
+        appendIncident({ kind: 'plugin-memory', level: 'all-third-party', target: row.name, mb, detail: '单个插件 ≥3000 MB：强制关闭 ' + summary.thirdParty.length + ' 个第三方插件（官方/内置除外）' })
+      }
+      writePendingBoot({ level: 'L1', reason: 'memory', disable: [row.name, ...summary.thirdParty], keep: [] })
+    }
+    if (summary.closed.length || summary.uninstalled.length || summary.thirdParty.length) persist(true)
+    return summary
+  }
+
   /** Profile drift detected by the tamper monitor: record, attribute, optionally enforce. */
   function handleTamper(result) {
     if (!result || !Array.isArray(result.diffs) || result.diffs.length === 0) return
@@ -218,5 +324,5 @@ export function createEnforcement({ watchdogState, refs, dataDir, journalDir, ex
     return operationWindows.some((window) => mtimeMs >= window.startedAt - 5000 && mtimeMs <= (window.settledAt || now) + 5000)
   }
 
-  return { onOperation, disableTarget, releaseTarget, disableMany, writePendingBoot, reapplyQuarantine, handleTamper, shouldIgnoreWrites, isWithinOperationWindow }
+  return { onOperation, disableTarget, releaseTarget, disableMany, writePendingBoot, reapplyQuarantine, handleTamper, shouldIgnoreWrites, isWithinOperationWindow, enforceMemoryTiers }
 }
