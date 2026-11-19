@@ -135,3 +135,28 @@ test('thirty stable minutes reset the escalation counters before a new crash', a
     fs.rmSync(dirs.dir, { recursive: true, force: true })
   }
 })
+
+test('a stale persisted escalation level is not shown when the window is empty', async () => {
+  resetWatchdogState()
+  const dirs = makeDirs()
+  const watchdog = createWatchdog(makeCtx(makeManager([], [])), { dataDir: dirs.state, logsDir: dirs.logs, journalDir: dirs.journal, sampleMs: 60_000 }, { info() {}, warn() {} })
+  try {
+    const now = Date.now()
+    watchdogState.escalation = { crashes: [now - 20 * 60_000, now - 21 * 60_000], level: 'L2', previousLevel: 'L1', lastCrashAt: now - 20 * 60_000 }
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    const plan = watchdog.snapshot().crashPlan
+    assert.equal(plan.level, 'L0')
+    assert.equal(plan.storedLevel, 'L2')
+    assert.equal(plan.crashes, 0)
+    assert.equal(plan.nextLevel, 'L1')
+    assert.deepEqual(plan.steps, [])
+  } finally {
+    watchdog.dispose()
+    fs.rmSync(dirs.dir, { recursive: true, force: true })
+  }
+})
+
+test('the status tool mapping exposes the crash plan', () => {
+  const source = fs.readFileSync(path.join(pluginRoot, 'lib', 'tools.js'), 'utf8')
+  assert.match(source, /crashPlan:\s*snapshot\.crashPlan/)
+})
