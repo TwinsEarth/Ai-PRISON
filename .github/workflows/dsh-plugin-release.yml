@@ -54,7 +54,7 @@ jobs:
         working-directory: dsh-plugin
         run: node scripts/release-check.mjs
 
-      - name: Pack the npm tarball and checksum the assets
+      - name: Pack the npm tarball
         id: pack
         working-directory: dsh-plugin
         run: |
@@ -63,14 +63,25 @@ jobs:
           npm pack --pack-destination ../dist
           version=$(node -p "require('./package.json').version")
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build per-platform lite tarballs
+        working-directory: dsh-plugin
+        run: node scripts/pack-platform.mjs --all --out ../dist/platform-packs
+
+      - name: Checksum the release assets
+        working-directory: dsh-plugin
+        run: |
+          set -euo pipefail
           cd ../dist
-          sha256sum ./*.tgz > SHA256SUMS
+          sha256sum ./*.tgz platform-packs/*.tgz > SHA256SUMS
+          cat SHA256SUMS
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
             dist/*.tgz
+            dist/platform-packs/*.tgz
             dist/SHA256SUMS
 
       - name: Upload release assets
@@ -79,6 +90,7 @@ jobs:
           name: dsh-plugin-assets
           path: |
             dist/*.tgz
+            dist/platform-packs/*.tgz
             dist/SHA256SUMS
             dsh-plugin/icon.svg
             dsh-plugin/docs/preview.svg

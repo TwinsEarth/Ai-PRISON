@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /**
- * Build a platform-lite npm tarball for one target.
+ * Build platform-lite npm tarballs for the bundled aiprison CLI.
  *
- * The published package bundles six CLI builds (~8.8 MB packed); most users only
- * need one. This script copies the package to a temporary directory, keeps only
- * `bin/<platform>-<arch>/`, and runs `npm pack` there, so a per-platform release
- * asset can be produced without changing the main package layout.
+ * The published package carries six CLI builds (~8.8 MB packed). Most users only
+ * need one, so this script copies the package to a temporary directory, keeps
+ * only the selected `bin/<platform>-<arch>/` tree, runs `npm pack` there and
+ * renames the tarball with the target suffix. `--all` produces the six assets in
+ * one run (used by the release workflow and for offline installs).
  *
  * Usage (from dsh-plugin/):
  *   node scripts/pack-platform.mjs --platform windows --arch amd64
- *   node scripts/pack-platform.mjs --platform macos --arch arm64 --out ../dist --dry-run
+ *   node scripts/pack-platform.mjs --all --out ../dist/platform-packs
+ *   node scripts/pack-platform.mjs --all --dry-run
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -19,15 +21,22 @@ import { fileURLToPath } from 'node:url'
 import { BUNDLED_TARGETS } from '../lib/cli.js'
 
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-
 const COPY = ['index.js', 'client.js', 'watchdog.js', 'cordis.patch.yml', 'icon.svg', 'README.md', 'CHANGELOG.md', 'LICENSE', 'package.json']
 const COPY_DIRS = ['lib', 'locale', 'docs']
 
-function parseArgs(argv) {
-  const args = { platform: 'windows', arch: 'amd64', out: path.join(pluginRoot, '..', 'dist'), dryRun: false }
+export function parseArgs(argv, { root = pluginRoot } = {}) {
+  const args = {
+    platform: 'windows',
+    arch: 'amd64',
+    all: false,
+    dryRun: false,
+    out: path.join(root, '..', 'dist', 'platform-packs'),
+    root,
+  }
   for (let index = 0; index < argv.length; index += 1) {
     const current = argv[index]
-    if (current === '--dry-run') args.dryRun = true
+    if (current === '--all') args.all = true
+    else if (current === '--dry-run') args.dryRun = true
     else if (current === '--platform') args.platform = argv[++index]
     else if (current === '--arch') args.arch = argv[++index]
     else if (current === '--out') args.out = path.resolve(argv[++index])
@@ -35,11 +44,11 @@ function parseArgs(argv) {
   }
   const target = `${args.platform}-${args.arch}`
   if (!BUNDLED_TARGETS.includes(target)) throw new Error(`unknown target ${target}; expected one of ${BUNDLED_TARGETS.join(', ')}`)
-  return { ...args, target }
+  return { ...args, target, targets: args.all ? [...BUNDLED_TARGETS] : [target] }
 }
 
-function copyInto(targetDir, relative) {
-  const source = path.join(pluginRoot, relative)
+function copyInto(targetDir, relative, root) {
+  const source = path.join(root, relative)
   const destination = path.join(targetDir, relative)
   if (!fs.existsSync(source)) return false
   fs.mkdirSync(path.dirname(destination), { recursive: true })
@@ -47,50 +56,58 @@ function copyInto(targetDir, relative) {
   return true
 }
 
-function main() {
-  const { platform, arch, target, out, dryRun } = parseArgs(process.argv.slice(2))
-  const executable = platform === 'windows' ? 'aiprison.exe' : 'aiprison'
-  const binSource = path.join(pluginRoot, 'bin', target, executable)
+function executableOf(target) {
+  return target.startsWith('windows') ? 'aiprison.exe' : 'aiprison'
+}
+
+function binaryOf(root, target) {
+  return path.join(root, 'bin', target, executableOf(target))
+}
+
+export function packOne({ target, out, dryRun, root = pluginRoot }) {
+  const binSource = binaryOf(root, target)
   if (!fs.existsSync(binSource)) throw new Error(`missing bundled CLI: ${binSource}`)
+  const packedBytes = fs.statSync(binSource).size
+  const skippedTargets = BUNDLED_TARGETS.filter((entry) => entry !== target).length
+  if (dryRun) return { target, dryRun: true, platformBinaryMB: Math.round(packedBytes / 1024 / 1024 * 10) / 10, skippedTargets }
 
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-prison-pack-'))
   try {
-    for (const file of COPY) copyInto(temp, file)
-    for (const directory of COPY_DIRS) copyInto(temp, directory)
-    copyInto(temp, path.join('bin', target))
-    const packagedBytes = fs.statSync(binSource).size
-    const otherBins = BUNDLED_TARGETS.filter((entry) => entry !== target).length
-    if (dryRun) {
-      console.log(JSON.stringify({ dryRun: true, target, temp, platformBinaryMB: Math.round(packagedBytes / 1024 / 1024 * 10) / 10, skippedTargets: otherBins }, null, 2))
-      return
-    }
+    for (const file of COPY) copyInto(temp, file, root)
+    for (const directory of COPY_DIRS) copyInto(temp, directory, root)
+    copyInto(temp, path.join('bin', target), root)
     fs.mkdirSync(out, { recursive: true })
     const result = spawnSync('npm', ['pack', '--pack-destination', out], { cwd: temp, encoding: 'utf8', shell: process.platform === 'win32' })
-    if (result.status !== 0) throw new Error(`npm pack failed: ${result.stderr || result.stdout}`)
-    const lines = String(result.stdout || '').trim().split(/\r?\n/)
-    const packedName = lines.find((line) => line.endsWith('.tgz'))
-    if (!packedName) throw new Error('npm pack did not report a tarball name')
-    // Keep the platform suffix so a lite tarball never overwrites the full one.
+    if (result.status !== 0) throw new Error(`npm pack failed for ${target}: ${result.stderr || result.stdout}`)
+    const packedName = String(result.stdout || '').trim().split(/\r?\n/).find((line) => line.endsWith('.tgz'))
+    if (!packedName) throw new Error(`npm pack did not report a tarball name for ${target}`)
+    // Target suffix keeps lite tarballs from overwriting the all-platform one.
     const targetFile = path.join(out, packedName.replace(/\.tgz$/, `-${target}.tgz`))
     fs.renameSync(path.join(out, packedName), targetFile)
     const bytes = fs.statSync(targetFile).size
-    const allBinariesMB = BUNDLED_TARGETS.reduce((total, entry) => {
-      const executableName = entry.startsWith('windows') ? 'aiprison.exe' : 'aiprison'
-      const candidate = path.join(pluginRoot, 'bin', entry, executableName)
-      return total + (fs.existsSync(candidate) ? fs.statSync(candidate).size : 0)
-    }, 0) / 1024 / 1024
-    console.log(JSON.stringify({
-      ok: true,
+    return {
       target,
       tarball: targetFile,
       sizeMB: Math.round(bytes / 1024 / 1024 * 10) / 10,
-      platformBinaryMB: Math.round(packagedBytes / 1024 / 1024 * 10) / 10,
-      allBinariesMB: Math.round(allBinariesMB * 10) / 10,
-      skippedTargets: otherBins,
-    }, null, 2))
+      platformBinaryMB: Math.round(packedBytes / 1024 / 1024 * 10) / 10,
+      skippedTargets,
+    }
   } finally {
     fs.rmSync(temp, { recursive: true, force: true })
   }
 }
 
-main()
+export function main(argv = process.argv.slice(2), { root = pluginRoot } = {}) {
+  const args = parseArgs(argv, { root })
+  const results = args.targets.map((target) => packOne({ target, out: args.out, dryRun: args.dryRun, root }))
+  if (results.length === 1) {
+    console.log(JSON.stringify(results[0], null, 2))
+    return results[0]
+  }
+  const totalMB = results.reduce((sum, result) => sum + (result.sizeMB || 0), 0)
+  console.log(JSON.stringify({ ok: true, out: args.out, count: results.length, totalMB: Math.round(totalMB * 10) / 10, targets: results }, null, 2))
+  return results
+}
+
+const invoked = process.argv[1] ? path.resolve(process.argv[1]) : ''
+if (invoked === fileURLToPath(import.meta.url)) main()
