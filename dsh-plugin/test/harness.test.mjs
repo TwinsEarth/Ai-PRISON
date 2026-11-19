@@ -33,3 +33,20 @@ test('electron-as-node anchors still point at the desktop asar', () => {
   })
   assert.ok(anchors.some((anchor) => anchor === path.join(path.dirname(DESKTOP_EXE), 'resources', 'app.asar', 'dsh', 'package.json')))
 })
+
+test('installation anchors follow the entry module in the runtime root', () => {
+  const entry = path.join(RUNTIME_ROOT, 'index.js')
+  const anchors = installationAnchors({ execPath: NODE_EXE, env: {}, argv: ['node', entry] })
+  assert.ok(anchors.includes(path.join(RUNTIME_ROOT, 'package.json')), 'entry dir anchor present')
+})
+
+test('installation anchors follow a nested entry module back to the package root', () => {
+  const entry = path.join(RUNTIME_ROOT, 'dist', 'index.js')
+  const anchors = installationAnchors({ execPath: NODE_EXE, env: {}, argv: ['node', entry] })
+  assert.ok(anchors.includes(path.join(RUNTIME_ROOT, 'package.json')), 'entry parent anchor present')
+})
+
+test('a non-DSH entry path does not add a bogus anchor', () => {
+  const anchors = installationAnchors({ execPath: NODE_EXE, env: {}, argv: ['node', path.join('C:', 'tools', 'other', 'index.js')] })
+  assert.ok(!anchors.some((anchor) => anchor === path.join('C:', 'tools', 'other', 'package.json')))
+})

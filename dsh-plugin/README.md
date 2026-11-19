@@ -107,6 +107,24 @@ agent-facing tools keep the explicit `data_dir` argument.
 repository with `node dsh-plugin/scripts/build-binaries.mjs` (pure standard
 library, `CGO_ENABLED=0`, no module downloads) and are not committed to git.
 
+### Per-platform packaging (size)
+
+The published tarball carries all six CLIs (about 8.8 MB packed). For a
+single-machine deployment you can build a platform-lite tarball that keeps only
+one `bin/<platform>-<arch>/` tree:
+
+```bash
+cd dsh-plugin
+node scripts/pack-platform.mjs --platform windows --arch amd64 --out ../dist
+# prints { target, tarball, sizeMB, fullSizeMB, skippedTargets }
+node scripts/pack-platform.mjs --platform macos --arch arm64 --dry-run
+```
+
+For reference, the all-platform tarball is about 8.8 MB; the windows-amd64
+lite tarball is about 1.6 MB. This script does not change the main package
+layout; the regular `npm pack`/release flow still publishes the all-platform
+tarball.
+
 On a platform without a bundled build, point `cliPath` / `AIPRISON_BIN` at a
 binary built from `cmd/aiprison`.
 

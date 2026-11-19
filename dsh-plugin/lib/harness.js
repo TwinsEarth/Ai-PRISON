@@ -15,10 +15,19 @@ export function installationAnchors({ execPath = process.execPath, env = process
   // the installation root arrives as DSH_INSTALL_DIR or as the host's second
   // argument (after the entry module).
   const argvRoot = typeof argv[2] === 'string' && argv[2].endsWith('package.json') === false ? argv[2] : undefined
+  // The entry module (argv[1]) often sits either directly in the runtime root
+  // (…/app.asar/dsh/index.js) or in a subdirectory (…/dsh/dist/index.js). Both
+  // are useful anchors when execPath no longer points at the installation.
+  const entry = typeof argv[1] === 'string' && path.isAbsolute(argv[1]) ? argv[1] : undefined
+  const entryDir = entry ? path.dirname(entry) : undefined
+  const entryParent = entryDir ? path.dirname(entryDir) : undefined
+  const entryLooksLikeDsh = (candidate) => Boolean(candidate) && /(^|[\\/])(app\.asar|dsh|dsh-runtime)([\\/]|$)/.test(candidate)
   return [
     env.DSH_APP_ANCHOR,
     env.DSH_INSTALL_DIR ? path.join(env.DSH_INSTALL_DIR, 'package.json') : undefined,
     argvRoot && path.basename(argvRoot) === 'dsh' ? path.join(argvRoot, 'package.json') : undefined,
+    entryLooksLikeDsh(entryDir) ? path.join(entryDir, 'package.json') : undefined,
+    entryLooksLikeDsh(entryParent) ? path.join(entryParent, 'package.json') : undefined,
     path.join(dir, 'resources', 'app.asar', 'dsh', 'package.json'),
     path.join(dir, 'resources', 'app', 'dsh', 'package.json'),
     path.join(dir, '..', 'Resources', 'app.asar', 'dsh', 'package.json'),
