@@ -2,6 +2,31 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.7.3] — 2026-11-19
+
+### Added
+
+- **Official tool API**: tools register through `ctx.tools.register(plainDefinition)`
+  first (Host `ToolDefinition` contract); `defineTool` from
+  `@deepseek-ai/dsh-tools` is now only a legacy fallback, so registration no
+  longer depends on installation-path guessing.
+- **Artifact attestation**: the release workflow attests the npm tarball, the
+  six platform-lite tarballs and `SHA256SUMS` (`actions/attest-build-provenance`).
+- **SignPath OSS signing wired**: conditional workflow steps upload the Windows
+  CLIs, request Authenticode signing (wait for completion), replace the binaries
+  and continue; without SignPath variables the build stays unsigned with an
+  explicit warning. Setup, variables and verification are documented in
+  `docs/SUPPLY-CHAIN.md`.
+- **Full-platform distribution**: the release also builds six platform-lite
+  tarballs (1.37–1.56 MB each) next to the all-platform tarball, with checksums
+  and attestation; the npm package layout is unchanged.
+
+### Fixed
+
+- `scripts/pack-platform.mjs` gained `--all`, exported argument parsing, target
+  suffixes and three tests; release assets no longer overwrite each other.
+
+## [1.7.2] — 2026-11-19
 ## [1.7.2] — 2026-11-19
 
 ### Fixed

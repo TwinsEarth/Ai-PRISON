@@ -110,3 +110,57 @@ dependencies (the esbuild/swc pattern). That would cut a normal `npm install`
 to ~1.5 MB, but it requires publishing seven packages, keeping their versions in
 lockstep, and reworking the release/2FA flow. The all-platform npm package stays
 the default until that is explicitly approved.
+
+## 5. SignPath OSS signing (CI wired)
+
+SignPath.io signs open-source Windows binaries for free. The release workflow
+already contains the integration; it stays inactive until the repository is
+configured, and prints a warning with an unsigned fallback otherwise.
+
+### One-time SignPath setup
+
+1. Apply to the [SignPath Foundation/OSS program](https://signpath.io/) and
+   install the SignPath GitHub app on `TwinsEarth/Ai-PRISON`.
+2. Create an organization and a project for this repository.
+3. Artifact configuration (ZIP-root paths):
+   - `windows-amd64/aiprison.exe`
+   - `windows-arm64/aiprison.exe`
+   The workflow uploads `dsh-plugin/bin/windows-*` as the `unsigned-windows-clis`
+   artifact; the artifact configuration signs every `aiprison.exe` with
+   Authenticode and returns the same layout under `signed-windows/`.
+4. Create a signing policy (e.g. `release-signing`) with the Authenticode
+   signing tool; note the policy slug.
+
+### Repository variables and secret
+
+| Kind | Name | Value |
+|---|---|---|
+| Variable | `SIGNPATH_ORGANIZATION_ID` | SignPath organization id |
+| Variable | `SIGNPATH_PROJECT_SLUG` | project slug |
+| Variable | `SIGNPATH_SIGNING_POLICY_SLUG` | signing policy slug |
+| Variable | `SIGNPATH_ARTIFACT_CONFIGURATION_SLUG` | artifact configuration slug |
+| Secret | `SIGNPATH_API_TOKEN` | API token (never committed) |
+
+### Workflow behavior
+
+- Steps `Upload unsigned Windows CLIs`, `Sign Windows CLIs with SignPath` and
+  `Install signed Windows CLIs` run only when the two variables above are set;
+  the action is `signpath/github-action-submit-signing-request@v3` with
+  `wait-for-completion: true` and `output-artifact-directory: signed-windows`;
+- the job needs `actions: read` (download the uploaded artifact) in addition to
+  `contents: read`;
+- after a successful signing request the signed `aiprison.exe` files replace the
+  unsigned ones before tests, tarballs, checksums and attestation run;
+- without credentials the steps are skipped and `::warning::` names this doc;
+  Windows binaries stay unsigned (current default).
+
+### Verification once signing is active
+
+```powershell
+# on a Windows machine after downloading the release binary
+Get-AuthenticodeSignature .\aiprison.exe | Format-List Status,SignerCertificate
+```
+
+The GitHub Release attestation also covers the signed tarballs, so a verifier
+can tie the artifact back to the workflow run (`gh attestation verify <tgz>
+--repo TwinsEarth/Ai-PRISON`).
