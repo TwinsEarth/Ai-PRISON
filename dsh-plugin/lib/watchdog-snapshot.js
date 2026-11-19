@@ -58,12 +58,13 @@ export function watchdogSnapshot() {
   const esc = s.escalation || {}
   const now = Date.now()
   const recentCrashes = Array.isArray(esc.crashes) ? esc.crashes.filter((at) => now - at <= CRASH_WINDOW_MS) : []
-  const crashLevel = esc.level || (recentCrashes.length >= 3 ? 'L3' : recentCrashes.length >= 2 ? 'L2' : recentCrashes.length >= 1 ? 'L1' : 'L0')
+  const crashLevel = recentCrashes.length >= 3 ? 'L3' : recentCrashes.length >= 2 ? 'L2' : recentCrashes.length >= 1 ? 'L1' : 'L0'
   const nextLevel = crashLevel === 'L0' ? 'L1' : crashLevel === 'L1' ? 'L2' : crashLevel === 'L2' ? 'L3' : null
   const lastPlan = s.plans && s.plans.length > 0 ? s.plans[s.plans.length - 1] : null
   const crashPlan = {
     level: crashLevel,
     previousLevel: esc.previousLevel || null,
+    storedLevel: esc.level || null,
     crashes: recentCrashes.length,
     windowMs: CRASH_WINDOW_MS,
     resetMs: CRASH_RESET_MS,

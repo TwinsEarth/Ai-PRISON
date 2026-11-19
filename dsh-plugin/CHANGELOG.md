@@ -2,6 +2,17 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.7.7] — 2026-11-19
+
+### Fixed
+
+- The crash-plan level is recomputed from the crashes inside the 10-minute
+  window instead of showing a stale persisted level (a fresh profile with no
+  recent crash now shows L0, not yesterday's L2).
+- `ai_prison_watchdog_status` now returns the `crashPlan` object (level, window,
+  reset time, next level, steps and last plan), matching the panel.
+
+## [1.7.6] — 2026-11-19
 ## [1.7.6] — 2026-11-19
 
 ### Added — crash degradation plan (crashForensics v2)

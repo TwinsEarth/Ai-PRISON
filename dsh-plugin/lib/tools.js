@@ -242,6 +242,7 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
           heap6gRequest: snapshot.heap6gRequest,
           pendingBoot: snapshot.pendingBoot,
           memoryTiers: snapshot.memoryTiers,
+          crashPlan: snapshot.crashPlan,
           rss: snapshot.rss,
           rssAt: snapshot.rssAt,
           rssError: snapshot.rssError,
