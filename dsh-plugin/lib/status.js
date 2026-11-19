@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { describeCli, resolveCli, resolveDataDir, runCli } from './cli.js'
 import { parseLevels } from './levels.js'
 import { listSegments } from './ledger.js'
+import { PLUGIN_VERSION } from './version.js'
 
 const MAX_DETAIL = 600
 
@@ -70,6 +71,7 @@ export async function buildStatus({ config = {}, cwd, timeoutMs = 120_000, root 
     generatedAt: new Date().toISOString(),
     cwd: cwd || null,
     platform: `${process.platform}-${process.arch}`,
+    pluginVersion: PLUGIN_VERSION,
     cli,
     levels,
     ledger,
@@ -79,7 +81,7 @@ export async function buildStatus({ config = {}, cwd, timeoutMs = 120_000, root 
 /** Bounded human summary used by tool results. */
 export function statusSummary(status) {
   const cliLine = status.cli.found
-    ? `aiprison ${status.cli.version || '?'}（${status.cli.source}: ${status.cli.path}）`
+    ? `AI Prison v${status.pluginVersion || '?'} · aiprison ${status.cli.version || '?'}（${status.cli.source}: ${status.cli.path}）`
     : `CLI 不可用：${status.cli.error || 'unknown'}`
   const ledgerLine = status.ledger.exists
     ? `账本 ${status.ledger.dir}：${status.ledger.integrity === 'ok' ? `INTEGRITY OK（${status.ledger.records ?? '?'} 条记录）` : `校验失败（${status.ledger.detail}）`}`

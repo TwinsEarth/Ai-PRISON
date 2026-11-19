@@ -17,6 +17,7 @@ window.__ModuleLoader__.load({
     const DICTS = {
       en: {
         'panel.label': 'AI Prison',
+        'panel.version': 'AI Prison v{version}',
         'page.title': 'AI Prison',
         'page.subtitle': 'Graduated capability deprivation for agents. Every backend is simulated.',
         'matrix.title': 'L0–L5 grading matrix',
@@ -97,6 +98,7 @@ window.__ModuleLoader__.load({
       },
       zh: {
         'panel.label': 'AI Prison',
+        'panel.version': 'AI Prison v{version}',
         'page.title': 'AI Prison · AI 监狱',
         'page.subtitle': '面向 AI Agent 的分级能力剥夺与行为矫正；所有后端均为内存模拟。',
         'matrix.title': 'L0–L5 分级矩阵',
@@ -719,6 +721,7 @@ window.__ModuleLoader__.load({
 
       const cli = data?.cli
       const cliText = cli && cli.found ? t('cli.found', { version: cli.version || '?' }) : t('cli.missing')
+      const pillText = data && data.pluginVersion ? t('panel.version', { version: data.pluginVersion }) : cliText
       const timeText = updated ? updated.toLocaleTimeString() : ''
 
       return h(
@@ -729,7 +732,7 @@ window.__ModuleLoader__.load({
           { style: C.header },
           h('span', { style: { display: 'inline-flex' } }, h(PrisonIcon, { size: 26, active: true })),
           h('div', { style: { minWidth: 0 } }, h('h1', { style: C.title }, t('page.title')), h('p', { style: C.sub }, t('page.subtitle'))),
-          h(Pill, { tone: cli && cli.found ? 'ok' : 'error', text: cliText }),
+          h(Pill, { tone: cli && cli.found ? 'ok' : 'error', text: pillText }),
           h('button', { type: 'button', style: C.btn, onClick: load, disabled: loading }, loading ? t('action.loading') : t('action.refresh')),
         ),
         error
@@ -756,7 +759,7 @@ window.__ModuleLoader__.load({
           'p',
           { style: { ...C.muted, fontSize: 12, margin: '2px 0 0', display: 'flex', gap: 12, flexWrap: 'wrap' } },
           h('span', null, t('meta.readonly')),
-          cli && cli.path ? h('span', { style: C.mono }, `${t('cli.source')}: ${cli.source} · ${cli.path}`) : null,
+          cli && cli.path ? h('span', { style: C.mono }, `${t('cli.source')}: ${cli.source} · ${cli.path} · aiprison ${cli.version || '?'}`) : null,
           timeText ? h('span', null, t('meta.updated', { time: timeText })) : null,
         ),
       )

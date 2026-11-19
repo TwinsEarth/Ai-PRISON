@@ -10,6 +10,9 @@ All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
   (previously 立即关闭 / Close now), and its confirmation prompt uses the same
   wording. The underlying action is unchanged (close the plugin); only the
   AI-Prison-themed label changed.
+- Header version pill shows the **plugin version** (`AI Prison vX.Y.Z`) instead of
+  the bundled aiprison CLI version; the CLI version stays in the footer. Before,
+  the pill always read `aiprison 1.0.9` regardless of plugin releases.
 
 ## [1.7.3] — 2026-11-19
 ## [1.7.3] — 2026-11-19
