@@ -2,6 +2,24 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.7.1] — 2026-11-19
+
+### Fixed
+
+- The new entry-based installation anchors required an absolute `argv[1]`; on
+  POSIX CI that test/assert failed (the harness tests only passed on Windows).
+  The anchor now accepts any entry path and still requires a DSH/app.asar
+  segment, so it is portable.
+- The release `windows-latest` job and the continuous `dsh-plugin-ci` jobs now
+  build the six bundled CLIs before running tests, so the manifest checks can
+  run outside the main package job.
+
+### Note
+
+- 1.7.0 was published to npm, but its tag-triggered GitHub Release failed on
+  the harness test above. 1.7.1 is the complete three-channel release.
+
+## [1.7.0] — 2026-11-19
 ## [1.7.0] — 2026-11-19
 
 ### Changed — structural cleanup and safer defaults
