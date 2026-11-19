@@ -17,16 +17,16 @@
 
 ```bash
 # 只观察：每分钟建一条曲线，写 verdict，不动进程
-node bin/aiprison-supervise.mjs --pid <host-pid> --data-dir <dir>
+node scripts/aiprison-supervise.mjs --pid <host-pid> --data-dir <dir>
 
 # 采样间隔 500ms
-node bin/aiprison-supervise.mjs --pid <host-pid> --interval 500
+node scripts/aiprison-supervise.mjs --pid <host-pid> --interval 500
 
 # 6GB 宿主，并在越过 kill 线后真的动手
-node bin/aiprison-supervise.mjs --pid <host-pid> --cap-mb 6144 --confirm-kill
+node scripts/aiprison-supervise.mjs --pid <host-pid> --cap-mb 6144 --confirm-kill
 
 # 只取一个样本（排查用）
-node bin/aiprison-supervise.mjs --pid <host-pid> --once
+node scripts/aiprison-supervise.mjs --pid <host-pid> --once
 ```
 
 产出：
@@ -75,3 +75,5 @@ node bin/aiprison-supervise.mjs --pid <host-pid> --once
 - 采样本身有成本：每次 `powershell -Command` 约 100–200ms，1s 间隔对宿主影响可忽略，500ms 以下不建议。
 - 不做自动重启、不做外部分级（那是 supervisor 之上的编排层，另案）。
 - 本版**未改版本号、未发布、未安装**，仍停在 1.7.7。
+
+
