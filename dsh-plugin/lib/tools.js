@@ -216,6 +216,8 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
           tamper: snapshot.tamper,
           boot: snapshot.boot,
           heap6g: snapshot.heap6g,
+          heap6gRequest: snapshot.heap6gRequest,
+          pendingBoot: snapshot.pendingBoot,
           rss: snapshot.rss,
           rssAt: snapshot.rssAt,
           rssError: snapshot.rssError,

@@ -1,0 +1,211 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { attributeCrash, hotOperationTriggered, mergeEstimate, operationWeight } from './watchdog-policy.js'
+import { remediationFor } from './remediation.js'
+import { readJournalRecords } from './watchdog-core.js'
+
+/**
+ * Plugin-operation accounting and enforcement: hot-operation counting, the
+ * per-target quarantine registry, rollback of additive operations at the
+ * pause/frost waterlines, manual release, and the pending-boot plan written for
+ * an external launcher.
+ *
+ * The module only talks to the plugin manager through `refs.manager`; it never
+ * writes plugin files.
+ */
+export function createEnforcement({ watchdogState, refs, dataDir, journalDir, exemptions, appendIncident, persist }) {
+  const inflight = new Map()
+  const operationWindows = []
+  let operationWindowUntil = 0
+  let lastOperationAt = 0
+
+  function writePendingBoot(payload) {
+    try {
+      fs.writeFileSync(path.join(dataDir, 'pending-boot.json'), JSON.stringify({ writtenAt: new Date().toISOString(), ...payload }, null, 2) + '\n')
+    } catch {
+      // an external launcher reads this file; best effort
+    }
+  }
+
+  async function disableTarget(target, reason) {
+    const manager = refs.manager
+    if (!manager || typeof manager.setBundleEnabled !== 'function') {
+      watchdogState.degraded = `disable ${target}: pluginManager unavailable`
+      return false
+    }
+    watchdogState.suppressUntil.set(target, Date.now() + 8000)
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const rows = typeof manager.listBundles === 'function' ? await manager.listBundles() : []
+        const row = rows.find((entry) => entry.name === target)
+        if (row && row.enabled === false) return true
+        await manager.setBundleEnabled(target, false)
+        appendIncident({ kind: 'close', target, reason, detail: `已自动关闭 ${target}（${reason}）` })
+        return true
+      } catch (error) {
+        if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 500))
+        else {
+          appendIncident({ kind: 'close-failed', target, reason, detail: `自动关闭 ${target} 失败：${String((error && error.message) || error)}` })
+          watchdogState.degraded = `disable ${target}: ${String((error && error.message) || error)}`
+          return false
+        }
+      }
+    }
+    return false
+  }
+
+  function releaseTarget(target) {
+    const entry = watchdogState.quarantine.get(target)
+    if (!entry) return { ok: false, error: 'not quarantined' }
+    watchdogState.quarantine.delete(target)
+    watchdogState.suppressUntil.set(target, Date.now() + 5000)
+    appendIncident({ kind: 'release', target, detail: `用户假释 ${target}（原因 ${entry.reason}）` })
+    persist(true)
+    return { ok: true }
+  }
+
+  async function disableMany(targets, reason) {
+    const unique = [...new Set(targets)].filter((target) => target && !exemptions.has(target) && !watchdogState.quarantine.has(target))
+    const disabled = []
+    for (const target of unique) {
+      watchdogState.quarantine.set(target, { reason, level: 'crash', at: new Date().toISOString(), release: 'manual', evidence: reason, remediation: remediationFor(reason) })
+      if (await disableTarget(target, reason)) disabled.push(target)
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    }
+    return disabled
+  }
+
+  async function reapplyQuarantine() {
+    for (const [target, entry] of watchdogState.quarantine) {
+      if (entry.release === 'restart') {
+        watchdogState.quarantine.delete(target)
+        continue
+      }
+      void disableTarget(target, 'boot-reapply')
+    }
+  }
+
+  function onOperation(operation) {
+    try {
+      if (!operation || typeof operation !== 'object') return
+      const target = typeof operation.target === 'string' && operation.target ? operation.target : null
+      if (!target) return
+      if ((watchdogState.suppressUntil.get(target) || 0) > Date.now()) return
+      const entry = watchdogState.operations.get(target) || { count: 0, estimateMB: 0, lastAt: null, version: operation.version || null, lastApplication: null }
+      operationWindowUntil = Date.now() + 4000
+      lastOperationAt = Date.now()
+      if (operation.phase === 'started') {
+        operationWindows.push({ startedAt: Date.now(), settledAt: null })
+        if (operationWindows.length > 20) operationWindows.shift()
+        inflight.set(operation.id, { target, heapBefore: watchdogState.latest ? watchdogState.latest.heapUsed : 0 })
+        entry.lastAt = operation.time || entry.lastAt
+        watchdogState.operations.set(target, entry)
+        return
+      }
+      if (operation.phase !== 'settled') return
+      for (let i = operationWindows.length - 1; i >= 0; i -= 1) {
+        if (operationWindows[i].settledAt === null) {
+          operationWindows[i].settledAt = Date.now()
+          break
+        }
+      }
+      const weight = operationWeight(operation)
+      if (weight > 0 && operation.application !== 'failed' && operation.application !== 'cancelled') {
+        entry.count = Math.round((Number(entry.count) + weight) * 10) / 10
+      }
+      const before = inflight.get(operation.id)
+      inflight.delete(operation.id)
+      if (before && watchdogState.latest && before.heapBefore > 0) {
+        const deltaMB = Math.max(0, Math.round((watchdogState.latest.heapUsed - before.heapBefore) / (1024 * 1024)))
+        entry.estimateMB = mergeEstimate(entry.estimateMB, deltaMB)
+      }
+      entry.lastAt = operation.time || entry.lastAt
+      entry.version = operation.version || entry.version
+      entry.lastApplication = operation.application || null
+      watchdogState.operations.set(target, entry)
+      const additive = operation.stage === 'install' || (operation.stage === 'enable' && operation.enabled !== false)
+      if (
+        watchdogState.enforce
+        && additive
+        && target
+        && !exemptions.has(target)
+        && (watchdogState.waterline === 'frost' || watchdogState.waterline === 'pause')
+        && !(Number.isFinite(watchdogState.graceUntil) && Date.now() < watchdogState.graceUntil)
+      ) {
+        const level = watchdogState.waterline
+        appendIncident({
+          kind: level === 'frost' ? 'freeze-rollback' : 'pause-rollback',
+          target,
+          level,
+          detail: (level === 'frost' ? '冻结' : '暂停') + '期间检测到面板/网页发起的增内存操作，已立即回滚关闭 ' + target,
+        })
+        void disableTarget(target, level + '-rollback')
+      }
+      if (operation.reason === 'remove' && operation.application === 'applied') {
+        watchdogState.operations.delete(target)
+        return
+      }
+      if (watchdogState.enforce && !exemptions.has(target) && !watchdogState.quarantine.has(target) && hotOperationTriggered(entry.count)) {
+        watchdogState.quarantine.set(target, {
+          reason: 'hot-ops',
+          level: 'L2',
+          at: new Date().toISOString(),
+          release: 'restart',
+          evidence: `本次运行内热操作计数 ${entry.count} > 5（安装/启用/热切换）`,
+          remediation: remediationFor('hot-ops', { count: entry.count }),
+        })
+        appendIncident({ kind: 'quarantine', target, level: 'L2', reason: 'hot-ops', detail: `热操作 ${entry.count} 次 > 5，自动关闭` })
+        persist(true)
+        void disableTarget(target, 'hot-ops')
+      }
+      persist(true)
+    } catch (error) {
+      watchdogState.degraded = `operation handler: ${String((error && error.message) || error)}`
+    }
+  }
+
+  /** Profile drift detected by the tamper monitor: record, attribute, optionally enforce. */
+  function handleTamper(result) {
+    if (!result || !Array.isArray(result.diffs) || result.diffs.length === 0) return
+    const files = result.diffs.map((diff) => diff.file)
+    const policy = (watchdogState.tamper && watchdogState.tamper.policy) || 'observe'
+    appendIncident({ kind: 'tamper', files, policy, restored: result.restored, detail: '配置漂移：' + files.join(', ') + (policy === 'observe' ? '（observe：仅记录，不恢复不关闭）' : '') })
+    let target = null
+    let evidence = []
+    try {
+      const records = readJournalRecords(journalDir).filter((record) => {
+        const at = Date.parse((record && record.operation && record.operation.time) || 0)
+        return Number.isFinite(at) && Date.now() - at < 6 * 3600 * 1000
+      })
+      const attribution = attributeCrash(records, { hostRunId: null })
+      target = attribution.picked ? attribution.picked.target : null
+      evidence = attribution.candidates
+    } catch {
+      target = null
+    }
+    const applied = Boolean(watchdogState.enforce && target && policy === 'restore')
+    const plan = { at: new Date().toISOString(), level: 'L1', crash: null, reason: 'tamper', remediation: remediationFor('tamper'), target, inFlight: false, evidence: { files: result.diffs, candidates: evidence }, applied }
+    watchdogState.plans.push(plan)
+    if (watchdogState.plans.length > 20) watchdogState.plans = watchdogState.plans.slice(-20)
+    if (applied) {
+      watchdogState.quarantine.set(target, { reason: 'tamper', level: 'L1', at: plan.at, release: 'manual', evidence: '配置漂移：' + files.join(', '), remediation: remediationFor('tamper') })
+      void disableTarget(target, 'tamper')
+      writePendingBoot({ level: 'L1', reason: 'tamper', disable: [target], keep: [] })
+      appendIncident({ kind: 'tamper-enforced', target, files, detail: '配置漂移后已隔离 ' + target })
+    }
+    persist(true)
+  }
+
+  /** True while the plugin manager itself is expected to be writing profile files. */
+  function shouldIgnoreWrites() {
+    return Date.now() < operationWindowUntil || Date.now() - lastOperationAt < 120000
+  }
+
+  /** True when a file mtime falls inside a recorded plugin-manager operation window. */
+  function isWithinOperationWindow(mtimeMs) {
+    const now = Date.now()
+    return operationWindows.some((window) => mtimeMs >= window.startedAt - 5000 && mtimeMs <= (window.settledAt || now) + 5000)
+  }
+
+  return { onOperation, disableTarget, releaseTarget, disableMany, writePendingBoot, reapplyQuarantine, handleTamper, shouldIgnoreWrites, isWithinOperationWindow }
+}

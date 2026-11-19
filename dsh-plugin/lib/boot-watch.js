@@ -9,18 +9,20 @@ import path from 'node:path'
  * so that a later boot (or the external guard) can see the curve even when this
  * process dies. Two stricter startup thresholds raise a safe-boot plan:
  *   - growth rate > rateMBps (default 150 MB/s), or
- *   - total heap > totalMB (2000 on a 4 GB host, 3000 on a 6 GB host).
+ *   - total heap > ~49% of the heap cap (2.0 GB on a 4 GB host, 3.0 GB on a 6 GB host).
  */
 export const BOOT_SAMPLE_MS = 500
 export const BOOT_MAX_MS = 120_000
 export const BOOT_RATE_MBPS = 150
+export const BOOT_TOTAL_RATIO = 0.49
 export const RUN_KEEP = 5
 
 export function bootThresholdsFor(heapLimitBytes) {
   const limitGB = Number(heapLimitBytes) / (1024 * 1024 * 1024)
+  const totalMB = Math.max(500, Math.round(limitGB * 1024 * BOOT_TOTAL_RATIO))
   return {
     rateMBps: BOOT_RATE_MBPS,
-    totalMB: limitGB >= 5.5 ? 3000 : 2000,
+    totalMB,
   }
 }
 

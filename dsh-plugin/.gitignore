@@ -1,0 +1,6 @@
+﻿# test scratch directories (created and removed by the test runner)
+.tmp-*/
+node_modules/
+dist/
+*.tgz
+

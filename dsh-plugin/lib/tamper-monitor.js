@@ -4,14 +4,24 @@ import crypto from 'node:crypto'
 
 /**
  * Hash watch for the profile files a plugin must never change behind the plugin
- * manager's back. A drift outside a plugin-manager operation window is treated
- * as tampering: the original bytes are restored (policy "restore") and the
- * watchdog raises an L1 plan for the last installed/updated plugin.
+ * manager's back.
+ *
+ * A drift outside a plugin-manager operation window is suspicious. The default
+ * policy is **observe**: the changed bytes are backed up as evidence and an
+ * incident fires, but the file is never rewritten. `alert` additionally treats
+ * the drift as a signal for the caller's enforcement path; `restore` is opt-in
+ * and is the only policy that writes the baseline bytes back to the profile.
  */
 export const CRITICAL_FILES = ['package.json', 'cordis.patch.yml', 'cordis.yml', 'pnpm-workspace.yaml', 'pnpm-lock.yaml']
 export const OPERATION_GRACE_MS = 4000
 export const STARTUP_GRACE_MS = 15000
 export const DEFAULT_INTERVAL_MS = 30000
+export const TAMPER_POLICIES = Object.freeze(['observe', 'alert', 'restore'])
+
+/** Unknown or missing policies must fail safe to observe (never rewrite files). */
+export function normalizeTamperPolicy(value) {
+  return value === 'restore' || value === 'alert' ? value : 'observe'
+}
 
 export function sha256(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex')
@@ -106,7 +116,7 @@ export function restoreBaseline(profileDir, baselineContents, diffs) {
 export function createTamperMonitor({
   profileDir,
   dataDir,
-  policy = 'restore',
+  policy = 'observe',
   graceMs = STARTUP_GRACE_MS,
   intervalMs = DEFAULT_INTERVAL_MS,
   shouldIgnore,
@@ -114,13 +124,14 @@ export function createTamperMonitor({
   onTamper,
   log,
 } = {}) {
+  const effectivePolicy = normalizeTamperPolicy(policy)
   const base = snapshotCriticalFiles(profileDir)
   let baseline = base
   let baselineAt = Date.now()
   let timer = null
   const status = {
     enabled: true,
-    policy,
+    policy: effectivePolicy,
     files: base.files.map((entry) => entry.file),
     baselineAt: new Date(baselineAt).toISOString(),
     lastCheckAt: null,
@@ -156,7 +167,7 @@ export function createTamperMonitor({
       return { ok: true, diffs: [], restored: [], skipped: status.skipped }
     }
     const backup = backupTampered(dataDir, profileDir, suspicious)
-    const restored = policy === 'restore' ? restoreBaseline(profileDir, baseline.contents, suspicious) : []
+    const restored = effectivePolicy === 'restore' ? restoreBaseline(profileDir, baseline.contents, suspicious) : []
     status.lastDiff = suspicious
     status.restored = restored
     status.incidents += 1
@@ -164,7 +175,7 @@ export function createTamperMonitor({
     baseline = snapshotCriticalFiles(profileDir)
     baselineAt = Date.now()
     if (backup.length > 0 && typeof log === 'function') log(`tamper monitor: 备份到 ${backup.length} 个文件`)
-    if (typeof onTamper === 'function') onTamper({ diffs: suspicious, restored, policy, backup })
+    if (typeof onTamper === 'function') onTamper({ diffs: suspicious, restored, policy: effectivePolicy, backup })
     return { ok: true, diffs, restored, backup }
   }
 

@@ -42,11 +42,12 @@ const REMEDIATION = {
   tamper: {
     title: '关键配置文件被非插件管理器修改',
     why: 'profile 的 package.json / cordis.patch.yml / pnpm-workspace.yaml / pnpm-lock.yaml 在插件管理器操作窗口之外发生了变化（被修改或删除）。',
-    impact: '已把被改动内容备份到 .ai-prison-watchdog/tampered/，默认恢复原文件；归因到的最后安装/启用插件已被隔离。',
+    impact: '默认 observe 只记录并保存证据，不会改动文件；策略为 restore 时才会把被改动内容备份到 .ai-prison-watchdog/tampered/、恢复原文件，并隔离归因到的最后安装/启用插件。',
     steps: [
       '检查 .ai-prison-watchdog/tampered/ 下的备份，确认改动来自哪里（手工编辑、脚本、其他工具）。',
       '不要在 DSH 运行中手工改 profile 配置；确需修改时先退出 DSH。',
-      '确认无插件行为异常后，在面板"插件监狱"点"假释"恢复该插件。',
+      '确认需要自动恢复时，显式把 tamperPolicy 设为 restore，并先核对备份内容。',
+      '确认无插件行为异常后，在面板"插件监狱"点"假释"恢复被隔离的插件。',
     ],
     release: '手动释放（面板"假释"）；恢复前先核对 tampered/ 备份。',
   },

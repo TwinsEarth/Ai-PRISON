@@ -1,12 +1,14 @@
 /**
- * Pure policy math for the AI Prison watchdog (P1).
+ * Pure policy math for the AI Prison watchdog.
  *
  * Threshold layout (derived from the real heap limit, absolute values clamped):
- *   warn     3.0 GB   -> yellow waterline
- *   pause    3.9 GB   -> additive plugin operations need a second confirmation
- *   opWarn   4.0 GB   -> red warning once the user continued through pause
- *   block    5.0 GB   -> freeze every plugin operation except the release whitelist
- * On a 4 GB host the same ratios map down (2.99 / 3.60 / 4.09 / 3.81 GB).
+ *   totalWarn   73% of the heap cap  -> yellow waterline
+ *   totalPause  88% of the cap       -> additive plugin operations need a second confirmation
+ *   totalBlock  93% of the cap       -> freeze every plugin operation except the release whitelist
+ *   opWarn      ~67% of the cap      -> strong warning once the user continued through pause
+ *   opBlock     ~83% of the cap      -> agent-side plugin_manager guard refuses
+ * On a 6 GB host that yields 3.0/3.9/5.0 GB and 4.0/5.0 GB operation gates; on a
+ * 4 GB host the same ratios map down to 2.99/3.60/3.81 GB and 2.73/3.41 GB.
  */
 export const MB = 1024 * 1024
 export const GB = 1024 * MB
@@ -275,4 +277,46 @@ export function formatBytes(bytes) {
   if (!Number.isFinite(value) || value < 0) return '—'
   if (value >= GB) return `${(value / GB).toFixed(2)} GB`
   return `${Math.round(value / MB)} MB`
+}
+
+/**
+ * Drop accounting rows for bundles that are no longer enabled, or whose version
+ * changed since the budget was measured. Keeps Top5/budgets honest after
+ * uninstalls and upgrades (state otherwise keeps stale targets forever).
+ */
+export function prunePluginState(state, rows) {
+  const list = Array.isArray(rows) ? rows : []
+  const enabled = new Set(list.filter((row) => row.enabled).map((row) => row.name))
+  const versions = new Map(list.filter((row) => row.enabled).map((row) => [row.name, String(row.version || '')]))
+  const removed = { operations: [], budgets: [], ranking: [], rss: [] }
+
+  if (state.operations instanceof Map) {
+    for (const target of [...state.operations.keys()]) {
+      if (!enabled.has(target)) {
+        state.operations.delete(target)
+        removed.operations.push(target)
+      }
+    }
+  }
+  for (const target of Object.keys(state.budgets || {})) {
+    const entry = state.budgets[target]
+    const measuredVersion = entry && entry.version ? String(entry.version) : ''
+    if (!enabled.has(target) || (measuredVersion && versions.get(target) !== measuredVersion)) {
+      delete state.budgets[target]
+      removed.budgets.push(target)
+    }
+  }
+  for (const target of Object.keys(state.ranking || {})) {
+    if (!enabled.has(target)) {
+      delete state.ranking[target]
+      removed.ranking.push(target)
+    }
+  }
+  for (const target of Object.keys(state.rss || {})) {
+    if (!enabled.has(target)) {
+      delete state.rss[target]
+      removed.rss.push(target)
+    }
+  }
+  return removed
 }

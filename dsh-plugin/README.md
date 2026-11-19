@@ -2,7 +2,7 @@
 
 AI Prison for DSH — the defensive agent-governance prototype of
 [Ai-PRISON](https://github.com/TwinsEarth/Ai-PRISON), exposed as a DeepSeek
-Harness bundle: six `ai_prison_*` tools plus a sidebar panel that renders the
+Harness bundle: eight `ai_prison_*` tools plus a sidebar panel that renders the
 L0–L5 grading matrix and the durable ledger's audit-chain state.
 
 Everything here is **defensive**: detection, graduated capability deprivation,
@@ -18,7 +18,7 @@ MicroVM isolation are **simulated backends**, not shipped controls.
   absolute package directory to the plugin manager).
 
 After enabling the bundle, a shield entry appears in the sidebar. Open it for the
-panel; the six tools become visible to the Agent on the next session step.
+panel; the eight tools become visible to the Agent on the next session step.
 
 ## Tools
 
@@ -26,6 +26,7 @@ panel; the six tools become visible to the Agent on the next session step.
 |---|---|---|
 | `ai_prison_levels` | read-only | Print the L0–L5 matrix (codes, names, duration class, deprived capabilities). |
 | `ai_prison_status` | read-only | CLI path/source/version, the matrix, and the ledger's integrity + record count. Same data as the panel. |
+| `ai_prison_watchdog_status` | read-only | Watchdog snapshot: memory waterline/thresholds, hot-operation Top5, quarantined plugins, crash plans, budgets, incidents. Same data as the Enforcement cards. |
 | `ai_prison_demo` | writes ledger | End-to-end governance demo: detect → seven-stage adjudication → layered enforcement → audit → appeal/rehabilitation → recovery. |
 | `ai_prison_drill` | writes ledger | v1.0.0 recovery drill over the reversibility matrix with per-assertion PASS/FAIL and an overall verdict. |
 | `ai_prison_inspect` | read-only | Replay the ledger: hash chain, agents, sentences, revocations, receipts, sealed snapshots. |
@@ -43,17 +44,35 @@ deleted and the action runs, because the CLI replays an existing ledger and
 refuses to re-seed credentials that earlier runs already revoked (`demo` twice,
 or a second `drill`, would otherwise fail).
 
-## Memory watchdog (P0, observe only)
+## Memory watchdog and plugin enforcement
 
 A second loader row (`ai-prison-watchdog`) samples the host heap every 5 seconds,
-derives the design thresholds from the real heap limit (300/500 MB per plugin,
-3.0/3.9/5.0 GB total, 4/5 GB operation gates), accounts plugin operations
+derives the design thresholds from the real heap limit (300/500 MB per plugin;
+3.0/3.9/5.0 GB and operation gates 4/5 GB on a 6 GB host, mapped down to
+2.99/3.60/3.81 and 2.73/3.41 GB on a 4 GB host), accounts plugin operations
 (install/remove = 1, enable = 1, disable = 0.5), estimates each plugin's heap
-delta around those operations and reads new `crash-*-host.log` files at startup.
-It exposes `GET /api/ai-prison/watchdog/status` and the read-only
-`ai_prison_watchdog_status` tool; the panel adds **Memory watchdog** and
-**Plugin prison** cards. **Observe mode never enables or disables a plugin** —
-enforcement (P1–P3) is not implemented and needs explicit confirmation.
+delta around those operations, reads new `crash-*-host.log` files at startup and
+records a 500 ms startup curve into `.ai-prison-watchdog/run-*.jsonl`.
+It exposes `GET /api/ai-prison/watchdog/status`, `POST /api/ai-prison/watchdog/action`
+and the read-only `ai_prison_watchdog_status` tool; the panel adds **Memory
+watchdog**, **Plugin prison** and **Enforcement** cards.
+
+**Enforcement is on by default.** Exceeding the hot-operation limit (more than
+five additive operations for one plugin in a run) closes and quarantines that
+plugin; at the pause/freeze waterlines additive operations are blocked and
+already-started ones are rolled back; agent-side `plugin_manager` calls are
+rejected too. Set `config.enforce: false` on the watchdog row for observe-only
+mode, which records everything but never touches a plugin.
+
+Things that are **off by default** because they spawn processes or rewrite
+files: child-process RSS scanning (`rssScan: true`), automatic budget probes
+(`probeAuto: true`), tray notifications (`notify: true`); profile tamper policy
+defaults to `observe` (`tamperPolicy: restore` opts into rewriting files).
+
+Enforcement plans are also written to `.ai-prison-watchdog/pending-boot.json`
+for a launcher/guard to apply **before the next start**. No such external
+consumer ships with the plugin, so that file alone does not disable anything:
+the in-process close/quarantine is what takes effect in the current run.
 State lives in `<profile>/.ai-prison-watchdog/`.
 
 ## Ledger directory
@@ -74,6 +93,12 @@ config:
 
 Resolution order for the CLI: `config.cliPath` → `AIPRISON_BIN` → the bundled
 build for this platform → `aiprison` on `PATH`.
+
+The panel's HTTP routes are deliberately narrower than the tools: a `data_dir`
+sent to `GET /api/ai-prison/status` or `POST /api/ai-prison/run` must resolve to
+the configured ledger directory or `<working directory>/.ai-prison`; anything
+else is rejected with `403 data-dir-not-allowed` before the CLI runs. The
+agent-facing tools keep the explicit `data_dir` argument.
 
 ## Bundled CLIs
 
@@ -102,6 +127,9 @@ the release check, packs the npm tarball and publishes the GitHub Release assets
 
 - Backends are simulations: no real isolation, revocation distribution,
   hardware binding or capability removal happens.
+- The watchdog is an in-process observer: it cannot sample or act while the host
+  event loop is blocked, before its loader row is initialized, or after the host
+  exits; it does not replace a process-external memory guard.
 - The plugin never writes the ledger from status calls; only the two explicit
   panel buttons and the `demo`, `drill` and `repair-tail` tools mutate it.
 - A wrong `data_dir` reveals that directory's integrity state only; the plugin

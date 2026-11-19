@@ -2,6 +2,52 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.7.0] — 2026-11-19
+
+### Changed — structural cleanup and safer defaults
+
+- **watchdog-runtime split** into `watchdog-core / persistence / sampler / enforcement / crash / budget / api / snapshot`;
+  the orchestrator dropped from 1,072 to 332 lines. Public API unchanged
+  (`createWatchdog` return shape and the `watchdogSnapshot` re-export).
+- **RSS child scan is opt-in**: only `rssScan: true` starts the 60 s scan; the
+  subprocess-service path is exported as `scanViaService()` and covered by tests.
+- **i18n single source**: runtime strings live only in the `client.js` inline
+  dictionaries (77 keys per language); `locale/*.json` keeps market metadata only.
+- **Docs/tool surface**: README documents all 8 `ai_prison_*` tools, patch/loader
+  comments describe enforce-first defaults, and a docs-consistency test guards it.
+- **Enforcement visibility**: `snapshot.pendingBoot` reports
+  `consumer: none` / `appliesNextBoot: false`; the panel warns that only the
+  current run’s in-process isolation applies. No external consumer ships.
+- **Tamper policy** defaults to `observe` (library and runtime, unknown values
+  fail safe); only `restore` rewrites profile files.
+
+### Fixed
+
+- HTTP `data_dir` is restricted to the configured ledger or `<cwd>/.ai-prison`
+  (403 `data-dir-not-allowed` before any CLI call); `POST /run` is throttled to
+  one execution per second (429 + `retryAfterMs`).
+- `heap6g` requests are written to the profile state directory
+  (`heap6g-request.json`) instead of the old hardcoded `E:/ToFuture` path, and
+  the response marks `consumer: external-launcher-required`.
+- `prunePluginState()` removes operations/budgets/ranking/RSS for uninstalled or
+  version-changed bundles, so Top5 and budgets no longer go stale.
+- `state.json` is replaced atomically; `incidents.jsonl` rotates to the last
+  2,000 lines atomically instead of 500.
+- Startup-watch thresholds are derived from the heap cap (4 GB → 2,007 MB,
+  6 GB → 3,011 MB) instead of two hard-coded constants.
+- Removed the tracked `.tmp-watchdog-*` scratch directories; added
+  `dsh-plugin/.gitignore`.
+
+### Tests and CI
+
+- Test suite: 89 → **120 tests** across 27 files, including watchdog failure
+  modes (startup OOM, exit-1, L3 escalation, observe mode), persistence,
+  pruning, API throttling and the subprocess-service contract.
+- `npm run coverage` gates lines 70 / branches 65 / functions 75 (currently
+  74.35 / 70.85 / 79.26); the release workflow runs it on ubuntu and adds a
+  `windows-latest` job for the Windows-only code paths.
+
+## [1.6.1] — 2026-11-19
 ## [1.6.1] — 2026-11-19
 
 ### Fixed

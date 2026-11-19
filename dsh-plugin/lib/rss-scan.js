@@ -8,11 +8,38 @@ import { RSS_QUERY_SCRIPT, parseProcessList } from './rss.js'
  * falls back to a direct spawn. Failures are recorded on the watchdog state and
  * reported once per run instead of silently producing an empty Top5.
  */
+/**
+ * Run the process-list query through the Host subprocess service (collected
+ * stdout + abort signal + grace). Exported separately so the provider contract
+ * can be tested on every platform, not only where the periodic scanner runs.
+ */
+export async function scanViaService(serviceInstance, { profileDir = process.cwd(), timeoutMs = 20_000 } = {}) {
+  const controller = new AbortController()
+  const abortTimer = setTimeout(() => controller.abort(), timeoutMs)
+  if (typeof abortTimer.unref === 'function') abortTimer.unref()
+  try {
+    const handle = serviceInstance.spawn({
+      argv: ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', RSS_QUERY_SCRIPT],
+      cwd: profileDir,
+      stdio: { stdin: 'ignore', stdout: { maxBytes: 4 * 1024 * 1024 }, stderr: { maxBytes: 64 * 1024 } },
+      graceMs: 5000,
+      signal: controller.signal,
+    })
+    await handle.done
+    const stdout = handle.collected.stdout ? handle.collected.stdout.readFrom(0).text : ''
+    const stderr = handle.collected.stderr ? handle.collected.stderr.readFrom(0).text : ''
+    if (!stdout) throw new Error('subprocess service returned no stdout' + (stderr ? ': ' + stderr.slice(0, 300) : ''))
+    return { stdout }
+  } finally {
+    clearTimeout(abortTimer)
+  }
+}
+
 const INTERVAL_MS = 60_000
 
 export function startRssScannerV2({ ctx, refs, profileDir, watchdogState, appendIncident, exemptTargets, spawn = defaultSpawn }) {
   if (process.platform !== 'win32') return undefined
-  if (watchdogState.config && watchdogState.config.rssScan === false) return undefined
+  if (!watchdogState.config || watchdogState.config.rssScan !== true) return undefined
   if (refs.rssStarted) return undefined
   refs.rssStarted = true
   let scanning = false
@@ -47,25 +74,7 @@ export function startRssScannerV2({ ctx, refs, profileDir, watchdogState, append
   }
 
   async function viaService(serviceInstance) {
-    const controller = new AbortController()
-    const abortTimer = setTimeout(() => controller.abort(), 20_000)
-    if (typeof abortTimer.unref === 'function') abortTimer.unref()
-    try {
-      const handle = serviceInstance.spawn({
-        argv: ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', RSS_QUERY_SCRIPT],
-        cwd: profileDir,
-        stdio: { stdin: 'ignore', stdout: { maxBytes: 4 * 1024 * 1024 }, stderr: { maxBytes: 64 * 1024 } },
-        graceMs: 5000,
-        signal: controller.signal,
-      })
-      await handle.done
-      const stdout = handle.collected.stdout ? handle.collected.stdout.readFrom(0).text : ''
-      const stderr = handle.collected.stderr ? handle.collected.stderr.readFrom(0).text : ''
-      if (!stdout) throw new Error('subprocess service returned no stdout' + (stderr ? ': ' + stderr.slice(0, 300) : ''))
-      return { stdout }
-    } finally {
-      clearTimeout(abortTimer)
-    }
+    return scanViaService(serviceInstance, { profileDir })
   }
 
   async function scan() {

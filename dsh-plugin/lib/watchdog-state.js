@@ -1,9 +1,11 @@
 /**
  * Shared in-process state of the AI Prison watchdog.
  *
- * P0 wrote it in observe mode; P1 keeps the same shape and adds the enforcement
- * registries (quarantine, pause grace, hot-operation counters, budget table,
- * baseline, crash plans). Nothing here touches the plugin manager by itself.
+ * The shape started as a P0 observe-only snapshot; it now also holds the
+ * enforcement registries (quarantine, pause grace, hot-operation counters,
+ * budget table, baseline, crash plans). Enforcement is the default; observe
+ * mode (`config.enforce: false`) uses the same state and only skips actions.
+ * Nothing here touches the plugin manager by itself.
  */
 export const watchdogState = {
   mode: 'enforce',

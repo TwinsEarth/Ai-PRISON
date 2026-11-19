@@ -1,28 +1,7 @@
 {
   "meta": {
     "title": "AI Prison · AI 监狱",
-    "description": "把 aiprison CLI 封装为六个 DSH 工具（levels、status、demo、drill、inspect、verify、repair-tail），并在侧边栏增加一个面板：展示 L0–L5 分级矩阵，以及落盘账本的审计链完整性与记录数。从侧边栏的盾牌入口打开；面板只读，不会写入数据目录。账本默认写到 <会话工作目录>/.ai-prison，也可在配置里指定数据目录。GRAM、TLM、硬件绑定、MicroVM 隔离等能力摘除后端全部为内存模拟 —— 这些工具用于审计与演示治理流程，并不执行真实隔离。",
+    "description": "把 aiprison CLI 封装为八个 DSH 工具（levels、status、watchdog status、demo、drill、inspect、verify、repair-tail），并在侧边栏增加一个面板：展示 L0–L5 分级矩阵，以及落盘账本的审计链完整性与记录数。从侧边栏的盾牌入口打开；面板只读，不会写入数据目录。账本默认写到 <会话工作目录>/.ai-prison，也可在配置里指定数据目录。GRAM、TLM、硬件绑定、MicroVM 隔离等能力摘除后端全部为内存模拟 —— 这些工具用于审计与演示治理流程，并不执行真实隔离。",
     "detail": "docs/DETAIL.zh.md"
-  },
-  "watchdog.enforceTitle": "执行状态",
-  "watchdog.enforceOn": "enforce",
-  "watchdog.observeOnly": "仅观察",
-  "watchdog.freezeHint": "堆水位已冻结（{level}）：除释放类操作外，所有插件操作被禁止。请关闭下方内存最大的插件或重启 DSH。",
-  "watchdog.confirmPause": "我已知晓：允许插件操作 10 分钟",
-  "watchdog.quarantine": "插件监狱",
-  "watchdog.noQuarantine": "没有被隔离的插件。",
-  "watchdog.release": "假释",
-  "watchdog.topFive": "按估算内存排序的前 {n} 个插件",
-  "watchdog.close": "立即关闭",
-  "watchdog.plans": "崩溃降级计划（dry-run）",
-  "watchdog.noPlans": "暂无崩溃归因计划。",
-  "watchdog.baseline": "干净基线：{at}",
-  "watchdog.tamper": "配置监控：{n} 个关键文件 · 策略 {policy} · 最近检查 {at}",
-  "watchdog.measure": "立即测量插件预算",
-  "watchdog.measureBlocked": "堆已冻结：测量会启动子进程，恢复前暂停测量。",
-  "prison.rss": "子进程 RSS",
-  "prison.plugin": "插件",
-  "watchdog.heap6gOff": "请求下次启动使用 6GB 堆",
-  "watchdog.heap6gOn": "取消 6GB 堆请求",
-  "watchdog.heap6gPending": "下次由 AI Prison Guard 启动时应用（需完全退出 DSH）。"
+  }
 }

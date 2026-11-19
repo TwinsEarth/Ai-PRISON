@@ -12,8 +12,9 @@ function fakeProcess(heapMB) {
 }
 
 test('startup thresholds depend on the heap cap', () => {
-  assert.equal(bootThresholdsFor(4 * 1024 * 1024 * 1024).totalMB, 2000)
-  assert.equal(bootThresholdsFor(6 * 1024 * 1024 * 1024).totalMB, 3000)
+  assert.equal(bootThresholdsFor(4 * 1024 * 1024 * 1024).totalMB, 2007)
+  assert.equal(bootThresholdsFor(6 * 1024 * 1024 * 1024).totalMB, 3011)
+  assert.equal(bootThresholdsFor(4 * 1024 * 1024 * 1024).rateMBps, 150)
 })
 
 test('trimRunFiles keeps only the newest run files', () => {

@@ -1,1 +1,0 @@
-{"at":"2026-11-17T23:34:45.927Z","mode":"enforce","kind":"crash","file":"crash-2026-01-01T00-00-00-000Z-host.log","time":"2026-01-01T00:00:00.000Z","phase":"running","hostExitCode":134,"oom":true,"level":"L1","target":"@twinsearth/dsh-w2m","inFlight":true,"detail":"崩溃归因：@twinsearth/dsh-w2m（崩溃时操作仍在途）；enforce"}

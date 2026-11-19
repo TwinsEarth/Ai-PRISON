@@ -5,7 +5,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { createWatchdog } from '../lib/watchdog-runtime.js'
 import { resetWatchdogState } from '../lib/watchdog-state.js'
-import { createTamperMonitor, diffSnapshots, restoreBaseline, snapshotCriticalFiles } from '../lib/tamper-monitor.js'
+import { createTamperMonitor, diffSnapshots, normalizeTamperPolicy, restoreBaseline, snapshotCriticalFiles } from '../lib/tamper-monitor.js'
 
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -232,6 +232,49 @@ test('legacy tamper quarantine from 1.4.3/1.4.4 is cleared once with an audited 
     const snapshot = watchdog.snapshot()
     assert.equal(snapshot.quarantine.length, 0)
     assert.ok(snapshot.incidents.some((incident) => incident.kind === 'migration'))
+  } finally {
+    watchdog.dispose()
+    fs.rmSync(profile, { recursive: true, force: true })
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('the tamper policy fails safe to observe and the library default is observe', async () => {
+  assert.equal(normalizeTamperPolicy(undefined), 'observe')
+  assert.equal(normalizeTamperPolicy('nonsense'), 'observe')
+  assert.equal(normalizeTamperPolicy('alert'), 'alert')
+  assert.equal(normalizeTamperPolicy('restore'), 'restore')
+
+  resetWatchdogState()
+  const profile = makeProfile()
+  const dir = makeTemp('.tmp-tamper-default-')
+  const dirs = {
+    dir,
+    logs: path.join(dir, 'logs'),
+    journal: path.join(dir, 'journal'),
+    state: path.join(dir, 'state'),
+  }
+  fs.mkdirSync(dirs.logs, { recursive: true })
+  fs.mkdirSync(dirs.journal, { recursive: true })
+  fs.mkdirSync(dirs.state, { recursive: true })
+  const { ctx } = makeCtx()
+  // No tamperPolicy is passed: the effective default must be observe, never restore.
+  const watchdog = createWatchdog(
+    ctx,
+    { profileDir: profile, dataDir: dirs.state, logsDir: dirs.logs, journalDir: dirs.journal, sampleMs: 60_000, tamperIntervalMs: 0, tamperGraceMs: 0 },
+    { info() {}, warn() {} },
+  )
+  try {
+    assert.equal(watchdog.snapshot().tamper.policy, 'observe')
+    fs.writeFileSync(path.join(profile, 'package.json'), '{"name":"default-observed"}')
+    const result = await watchdog.tamperCheck({ force: true })
+    assert.equal(result.restored.length, 0, 'default policy never rewrites the profile')
+    assert.equal(JSON.parse(fs.readFileSync(path.join(profile, 'package.json'), 'utf8')).name, 'default-observed')
+    const snapshot = watchdog.snapshot()
+    const incident = snapshot.incidents.find((entry) => entry.kind === 'tamper')
+    assert.equal(incident.policy, 'observe')
+    const backups = fs.readdirSync(path.join(dirs.state, 'tampered'))
+    assert.equal(backups.length, 1, 'the evidence backup is kept')
   } finally {
     watchdog.dispose()
     fs.rmSync(profile, { recursive: true, force: true })

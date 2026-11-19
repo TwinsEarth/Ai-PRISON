@@ -1,2 +1,0 @@
-{"runId":"run-x","operation":{"id":"op-1","time":"2026-01-01T00:00:00.000Z","reason":"bundle","target":"@twinsearth/dsh-w2m","stage":"enable","enabled":true,"version":"3.5.0","phase":"started"}}
-{"runId":"run-x","operation":{"id":"op-2","time":"2025-12-31T23:58:00.000Z","reason":"install","target":"@a/installed","stage":"install","enabled":true,"phase":"settled","application":"applied","changed":true}}

@@ -3,10 +3,13 @@
 # Two rows:
 #   ai-prison          Host tools + read-only status API + the sidebar panel
 #                      (L0-L5 matrix, audit chain, plugin prison and memory cards).
-#   ai-prison-watchdog P0 watchdog in OBSERVE mode: samples the host heap,
-#                      accounts plugin operations, reads recent host crash logs and
-#                      serves /api/ai-prison/watchdog/status. It never enables or
-#                      disables a plugin; enforcement arrives in later phases.
+#   ai-prison-watchdog Memory watchdog + plugin-operation enforcement. It samples
+#                      the host heap and startup memory, accounts plugin operations,
+#                      reads recent host crash logs, watches the profile files and
+#                      serves /api/ai-prison/watchdog/*. Enforcement is ON by
+#                      default: pause/freeze rolls back additive operations and a
+#                      hot-operation limit closes + quarantines the plugin.
+#                      Set enforce: false for observe-only (record, never touch).
 #
 # Optional config (a profile-level patch replaces this block wholesale, so
 # restate every field you want to keep):
@@ -16,11 +19,16 @@
 #     dataDir: ''        # durable ledger directory (default <session cwd>/.ai-prison)
 #     timeoutMs: 120000  # per-call CLI timeout
 #
-# The watchdog accepts:
+# The watchdog accepts (defaults shown; all security-sensitive extras are off):
 #
 #   config:
-#     sampleMs: 5000     # heap sampling interval
-#     observe: true      # P0 is observe-only; enforcement is not implemented yet
+#     enforce: true         # false = observe only (records, never closes a plugin)
+#     sampleMs: 5000        # heap sampling interval
+#     rssScan: false        # child-process RSS scan (spawns PowerShell every 60s)
+#     probeAuto: false      # automatic budget probes at startup (spawns node)
+#     tamperPolicy: observe # observe | alert | restore (restore rewrites profile)
+#     crashFallback: enforce # enforce | dry-run (pending-boot plan only)
+#     notify: false         # Windows tray notifications
 - insert:
     - id: ai-prison
       name: '@twinsearth/ai-prison-dsh-plugin'

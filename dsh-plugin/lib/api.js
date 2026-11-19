@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { resolveCli, resolveDataDir, runCli } from './cli.js'
 import { listSegments, resetLedger } from './ledger.js'
 import { buildStatus, summarizeRun } from './status.js'
@@ -31,7 +32,50 @@ export function resolveSessionCwd(ctx) {
   return undefined
 }
 
+function samePath(left, right) {
+  const normalize = (value) => {
+    const resolved = path.resolve(String(value))
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+  }
+  return normalize(left) === normalize(right)
+}
+
+/**
+ * Resolve a `data_dir` requested over HTTP against the ledger directories the
+ * panel is allowed to touch: the configured directory and `<cwd>/.ai-prison`.
+ * The agent-facing tools keep their explicit-path freedom, but a web route must
+ * not be able to point `reset`/`demo` at an arbitrary directory on disk.
+ */
+export function resolveAllowedDataDir({ requested, config = {}, cwd } = {}) {
+  const baseCwd = cwd || process.cwd()
+  const defaultDir = path.resolve(resolveDataDir({ config, cwd: baseCwd }))
+  const allowed = [...new Set([defaultDir, path.resolve(baseCwd, '.ai-prison')])]
+  if (requested === undefined || requested === null) return { ok: true, dir: defaultDir, allowed }
+  if (typeof requested !== 'string' || requested.trim() === '') {
+    return { ok: false, reason: 'invalid', error: 'data_dir must be a non-empty string', allowed }
+  }
+  const resolved = path.resolve(baseCwd, requested.trim())
+  const match = allowed.find((candidate) => samePath(candidate, resolved))
+  if (!match) {
+    return {
+      ok: false,
+      reason: 'not-allowed',
+      error: 'data_dir must be the configured ledger directory or <working directory>/.ai-prison',
+      dir: resolved,
+      allowed,
+    }
+  }
+  return { ok: true, dir: match, allowed }
+}
+
 const ACTIONS = new Set(['demo', 'drill', 'reset', 'reset-demo', 'reset-drill'])
+
+/** Minimum spacing between two POST /run executions (simple local throttle). */
+export const RUN_MIN_INTERVAL_MS = 1000
+let lastRunAt = 0
+export function resetRunThrottle() {
+  lastRunAt = 0
+}
 
 function jsonResponse(payload, status = 200) {
   return Response.json(payload, { status, headers: { 'cache-control': 'no-store' } })
@@ -61,9 +105,13 @@ export function registerApi({ ctx, config = {}, logger } = {}) {
         fetch: async (request) => {
           try {
             const url = new URL(request.url)
+            const cwd = resolveSessionCwd(ctx)
             const requested = url.searchParams.get('data_dir')
-            const statusConfig = requested ? { ...config, dataDir: requested } : config
-            const status = await buildStatus({ config: statusConfig, cwd: resolveSessionCwd(ctx) })
+            const allowed = resolveAllowedDataDir({ requested: requested === null ? undefined : requested, config, cwd })
+            if (!allowed.ok) {
+              return jsonResponse({ ok: false, error: allowed.error, reason: 'data-dir-not-allowed', allowed: allowed.allowed, dir: allowed.dir }, 403)
+            }
+            const status = await buildStatus({ config: { ...config, dataDir: allowed.dir }, cwd })
             return jsonResponse(status)
           } catch (error) {
             return jsonResponse({ ok: false, error: String((error && error.message) || error) }, 500)
@@ -89,10 +137,19 @@ export function registerApi({ ctx, config = {}, logger } = {}) {
           if (!ACTIONS.has(action)) {
             return jsonResponse({ ok: false, error: 'action must be one of demo, drill, reset, reset-demo' }, 400)
           }
+          const sinceLastRun = Date.now() - lastRunAt
+          if (sinceLastRun < RUN_MIN_INTERVAL_MS) {
+            return jsonResponse({ ok: false, error: 'run is rate limited', reason: 'rate-limited', retryAfterMs: RUN_MIN_INTERVAL_MS - sinceLastRun }, 429)
+          }
+          lastRunAt = Date.now()
           const resolved = resolveCli({ config })
           const cwd = resolveSessionCwd(ctx) || process.cwd()
           const requested = typeof body?.data_dir === 'string' && body.data_dir ? body.data_dir : undefined
-          const dataDir = requested ? requested : resolveDataDir({ config, cwd })
+          const allowed = resolveAllowedDataDir({ requested, config, cwd })
+          if (!allowed.ok) {
+            return jsonResponse({ ok: false, action, error: allowed.error, reason: 'data-dir-not-allowed', allowed: allowed.allowed, dir: allowed.dir }, 403)
+          }
+          const dataDir = allowed.dir
 
           let removed = []
           if (action === 'reset' || action === 'reset-demo' || action === 'reset-drill') {
