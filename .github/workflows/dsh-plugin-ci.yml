@@ -1,0 +1,54 @@
+name: DSH Plugin CI
+
+# Continuous checks for the DSH bundle in dsh-plugin/. The release workflow
+# (.github/workflows/dsh-plugin-release.yml) only runs on tags; this one runs on
+# every change so a regression is caught before a release is attempted.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dsh-plugin/**'
+      - '.github/workflows/dsh-plugin-ci.yml'
+  pull_request:
+    paths:
+      - 'dsh-plugin/**'
+
+permissions:
+  contents: read
+
+jobs:
+  test-ubuntu:
+    name: tests + coverage (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Tests with coverage gate
+        working-directory: dsh-plugin
+        run: npm run coverage
+
+      - name: Release gate
+        working-directory: dsh-plugin
+        run: node scripts/release-check.mjs
+
+  test-windows:
+    name: tests (windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Unit and integration tests
+        working-directory: dsh-plugin
+        run: node --test test/*.test.mjs
