@@ -94,6 +94,17 @@ window.__ModuleLoader__.load({
         'prison.plugin': 'Plugin',
         'prison.rss': 'Child RSS',
         'watchdog.memoryTier': 'Memory tier',
+        'crashPlan.title': 'Crash degradation plan',
+        'crashPlan.level': 'Level {level}',
+        'crashPlan.window': '{n} crash(es) in {minutes} min',
+        'crashPlan.next': 'next {level}',
+        'crashPlan.max': 'at the highest level',
+        'crashPlan.step.isolate-target': 'L1 isolate the attributed or in-flight plugin',
+        'crashPlan.step.revert-changed': 'L2 also close plugins changed since the clean baseline',
+        'crashPlan.step.safe-mode': 'L3 safe mode: keep the clean baseline, close newer plugins',
+        'crashPlan.last': 'last plan {at} · {target} · {applied}',
+        'crashPlan.applied': 'applied',
+        'crashPlan.notApplied': 'not applied',
         'memoryTier.ok': 'Normal',
         'memoryTier.warn': 'Warning',
         'memoryTier.throttle': 'Throttled',
@@ -185,6 +196,17 @@ window.__ModuleLoader__.load({
         'prison.plugin': '插件',
         'prison.rss': '子进程 RSS',
         'watchdog.memoryTier': '内存档位',
+        'crashPlan.title': '崩溃降级计划',
+        'crashPlan.level': '当前 {level}',
+        'crashPlan.window': '{minutes} 分钟窗口内 {n} 次崩溃',
+        'crashPlan.next': '下一档 {level}',
+        'crashPlan.max': '已到最高档',
+        'crashPlan.step.isolate-target': 'L1 隔离崩溃归因（或崩溃时在途）的插件',
+        'crashPlan.step.revert-changed': 'L2 同时关闭干净基线之后变更的插件',
+        'crashPlan.step.safe-mode': 'L3 安全模式：保留干净基线，关闭所有新增插件',
+        'crashPlan.last': '最近计划 {at} · {target} · {applied}',
+        'crashPlan.applied': '已执行',
+        'crashPlan.notApplied': '未执行',
         'memoryTier.ok': '正常',
         'memoryTier.warn': '警告',
         'memoryTier.throttle': '节流',
@@ -326,6 +348,7 @@ window.__ModuleLoader__.load({
     }
 
     const MEMORY_TIER_KEYS = { ok: 'memoryTier.ok', warn: 'memoryTier.warn', throttle: 'memoryTier.throttle', close: 'memoryTier.close', uninstall: 'memoryTier.uninstall', 'all-third-party': 'memoryTier.all-third-party' }
+    const CRASH_STEP_KEYS = { 'isolate-target': 'crashPlan.step.isolate-target', 'revert-changed': 'crashPlan.step.revert-changed', 'safe-mode': 'crashPlan.step.safe-mode' }
 
     function Pill({ tone, text }) {
       const palette = { ok: C.ok.color, info: '#2563eb', warn: '#b45309', error: C.error.color }
@@ -517,6 +540,7 @@ window.__ModuleLoader__.load({
       const grace = Number.isFinite(watchdog.graceUntil) && Date.now() < watchdog.graceUntil
       const quarantine = Array.isArray(watchdog.quarantine) ? watchdog.quarantine : []
       const topFive = Array.isArray(watchdog.topFive) ? watchdog.topFive : []
+      const crashPlan = watchdog.crashPlan || null
       const plans = Array.isArray(watchdog.plans) ? watchdog.plans.slice(-2).reverse() : []
       const button = { cursor: 'pointer', padding: '3px 9px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l1, rgba(0,0,0,.18))', background: 'transparent', fontSize: 12 }
       return h('section', { style: C.card },
@@ -559,6 +583,25 @@ window.__ModuleLoader__.load({
             ))),
           ),
         ),
+        crashPlan ? h('div', { style: { marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--dsw-alias-border-l1, rgba(0,0,0,.12))' } },
+          h('div', { style: { ...C.key, marginBottom: 4 } }, t('crashPlan.title')),
+          h('div', { style: { fontSize: 12.5, marginBottom: 4 } },
+            t('crashPlan.level', { level: crashPlan.level })
+              + ' · ' + t('crashPlan.window', { n: crashPlan.crashes, minutes: Math.round((crashPlan.windowMs || 0) / 60000) })
+              + (crashPlan.nextLevel ? ' · ' + t('crashPlan.next', { level: crashPlan.nextLevel }) : ' · ' + t('crashPlan.max'))),
+          h('div', { style: { ...C.muted, fontSize: 11.5, lineHeight: 1.6 } },
+            ['isolate-target', 'revert-changed', 'safe-mode'].map((step) => {
+              const active = Array.isArray(crashPlan.steps) && crashPlan.steps.indexOf(step) >= 0
+              return h('div', { key: step, style: { opacity: active ? 1 : 0.45 } }, (active ? '▸ ' : '· ') + t(CRASH_STEP_KEYS[step]))
+            })),
+          crashPlan.lastPlan
+            ? h('div', { style: { ...C.mono, fontSize: 11, marginTop: 4 } }, t('crashPlan.last', {
+                at: crashPlan.lastPlan.at || '—',
+                target: crashPlan.lastPlan.target || crashPlan.lastPlan.fallback || 'unattributed',
+                applied: crashPlan.lastPlan.applied ? t('crashPlan.applied') : t('crashPlan.notApplied'),
+              }))
+            : null,
+        ) : null,
         plans.length === 0 ? null : h('div', { style: { marginTop: 10 } },
           h('div', { style: { ...C.key, marginBottom: 4 } }, t('watchdog.plans')),
           plans.map((plan) => h('div', { key: plan.at, style: { ...C.mono, fontSize: 11.5, wordBreak: 'break-word' } },

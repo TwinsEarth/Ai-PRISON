@@ -90,6 +90,13 @@ test('memory waterline band labels exist in both dictionaries', () => {
   }
 })
 
+test('crash-plan step labels exist in both dictionaries', () => {
+  for (const key of ['crashPlan.step.isolate-target', 'crashPlan.step.revert-changed', 'crashPlan.step.safe-mode']) {
+    assert.ok(dictionaryBody('en').includes(`'${key}'`), `en has ${key}`)
+    assert.ok(dictionaryBody('zh').includes(`'${key}'`), `zh has ${key}`)
+  }
+})
+
 test('locale JSON carries market metadata only; runtime strings have one source', () => {
   for (const language of ['en', 'zh']) {
     const json = JSON.parse(fs.readFileSync(path.join(root, 'locale', `${language}.json`), 'utf8'))

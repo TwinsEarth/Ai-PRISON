@@ -4,6 +4,28 @@ All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
 ## [1.7.6] — 2026-11-19
 
+### Added — crash degradation plan (crashForensics v2)
+
+- Explicit L1–L3 plan preview in the snapshot and the Enforcement card:
+  current level, crashes inside the 10-minute window, the 30-minute stability
+  reset, the next level and which steps are active.
+  - **L1** isolate the attributed (or in-flight) plugin; unknown attribution
+    records the plan without killing anything.
+  - **L2** L1 + close plugins changed since the clean baseline (without a
+    baseline only the attributed target is closed).
+  - **L3** safe mode: keep the clean baseline and close every newer plugin;
+    without a baseline, close every non-official third-party plugin.
+- Escalation raises a forced `crash-escalation` notification; 30 minutes
+  without a crash records `crash-reset` and returns to L0.
+- Plans now record `targets`, `keep`, `applied`, `executedAt` and a
+  `fallback` (`observe-only` / `changed-set` / `safe-mode`).
+- `pending-boot.json` never downgrades an existing plan level.
+- Crash enforcement waits for `pluginManager` and the first scan runs on the
+  next microtask, so the initial plan can close plugins instead of seeing an
+  empty bundle list.
+
+### Added — per-plugin memory tiers in the plugin prison
+
 ### Added — per-plugin memory tiers in the plugin prison
 
 | Occupancy | Action |

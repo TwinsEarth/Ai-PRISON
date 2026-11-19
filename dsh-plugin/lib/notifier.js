@@ -11,6 +11,7 @@ const KIND_LABELS = {
   quarantine: '插件隔离',
   tamper: '配置篡改',
   'crash-enforced': '崩溃隔离',
+  'crash-escalation': '崩溃升级',
   'quarantine-reminder': '插件仍在隔离',
   budget: '内存超限',
 }

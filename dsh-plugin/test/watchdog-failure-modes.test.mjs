@@ -149,7 +149,7 @@ test('three crashes inside the window escalate to L3 and close non-baseline plug
   const { ctx } = makeCtx(manager)
   const watchdog = createWatchdog(ctx, { dataDir: dirs.state, logsDir: dirs.logs, journalDir: dirs.journal, sampleMs: 60_000 }, { info() {}, warn() {} })
   try {
-    await sleep(800)
+    await sleep(2500)
     const snapshot = watchdog.snapshot()
     assert.equal(snapshot.escalation.level, 'L3')
     assert.equal(snapshot.plans.at(-1).level, 'L3')

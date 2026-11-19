@@ -122,7 +122,8 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
     watchdogState.degraded = 'boot watch: ' + String((error && error.message) || error)
   }
 
-  crash.readCrashLogs()
+  // Scan on the next microtask: ctx.inject resolves pluginManager later in create().
+  queueMicrotask(() => crash.readCrashLogs())
 
   // ---- tamper monitor ----------------------------------------------------
   let tamper = null

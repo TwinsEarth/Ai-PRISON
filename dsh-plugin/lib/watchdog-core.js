@@ -13,6 +13,9 @@ export const CRASH_HEAD_BYTES = 256 * 1024
 export const BASELINE_DELAY_MS = 60_000
 export const PAUSE_GRACE_MS = 10 * 60_000
 export const CRASH_WINDOW_MS = 10 * 60_000
+
+/** Stable time after which crash counters no longer escalate (30 minutes). */
+export const CRASH_RESET_MS = 30 * 60_000
 export const MAX_JOURNAL_RECORDS = 4000
 
 /** Bundles the watchdog must never quarantine or disable. */

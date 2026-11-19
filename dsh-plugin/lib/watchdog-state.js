@@ -39,7 +39,7 @@ export const watchdogState = {
   /** Crash attribution plans (dry-run): { at, level, target, evidence, applied } */
   plans: [],
   /** Escalation counters: crash timestamps (ms) and applied level. */
-  escalation: { crashes: [], level: 'L0' },
+  escalation: { crashes: [], level: 'L0', previousLevel: null, lastCrashAt: null },
   /** Profile file tamper monitor status. */
   tamper: null,
   /** Recent incidents (newest last), capped. */
@@ -75,7 +75,7 @@ export function resetWatchdogState(overrides = {}) {
   watchdogState.budgets = {}
   watchdogState.baseline = null
   watchdogState.plans = []
-  watchdogState.escalation = { crashes: [], level: 'L0' }
+  watchdogState.escalation = { crashes: [], level: 'L0', previousLevel: null, lastCrashAt: null }
   watchdogState.tamper = null
   watchdogState.incidents = []
   watchdogState.lastCrashScan = 0

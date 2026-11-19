@@ -83,7 +83,7 @@ test('watchdog can run in observe mode without enforcement', () => {
   }
 })
 
-test('crash attribution records a dry-run L1 plan from log + journal', () => {
+test('crash attribution records a dry-run L1 plan from log + journal', async () => {
   resetWatchdogState()
   const dirs = makeDirs()
   fs.writeFileSync(path.join(dirs.logs, 'crash-2026-01-01T00-00-00-000Z-host.log'), CRASH_FIXTURE)
@@ -99,6 +99,7 @@ test('crash attribution records a dry-run L1 plan from log + journal', () => {
   const { ctx } = makeCtx()
   const watchdog = createWatchdog(ctx, { dataDir: dirs.state, logsDir: dirs.logs, journalDir: dirs.journal, sampleMs: 60_000 }, { info() {}, warn() {} })
   try {
+    await new Promise((resolve) => setTimeout(resolve, 60))
     const snapshot = watchdog.snapshot()
     const plan = snapshot.plans[0]
     assert.ok(plan)

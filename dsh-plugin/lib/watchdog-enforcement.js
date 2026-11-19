@@ -21,7 +21,16 @@ export function createEnforcement({ watchdogState, refs, dataDir, journalDir, ex
 
   function writePendingBoot(payload) {
     try {
-      fs.writeFileSync(path.join(dataDir, 'pending-boot.json'), JSON.stringify({ writtenAt: new Date().toISOString(), ...payload }, null, 2) + '\n')
+      const file = path.join(dataDir, 'pending-boot.json')
+      const rank = { L0: 0, L1: 1, L2: 2, L3: 3 }
+      let previous = null
+      try {
+        previous = JSON.parse(fs.readFileSync(file, 'utf8'))
+      } catch {
+        previous = null
+      }
+      if (previous && (rank[previous.level] || 0) > (rank[payload.level] || 0)) return
+      fs.writeFileSync(file, JSON.stringify({ writtenAt: new Date().toISOString(), ...payload }, null, 2) + '\n')
     } catch {
       // an external launcher reads this file; best effort
     }

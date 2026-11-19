@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { topOperations, rankTopPlugins } from './watchdog-policy.js'
 import { watchdogState } from './watchdog-state.js'
+import { CRASH_RESET_MS, CRASH_WINDOW_MS } from './watchdog-core.js'
 
 /** Top5 v2: measured + estimate + child RSS with EWMA smoothing and rank hysteresis. */
 function mergedTop(state, limit) {
@@ -54,8 +55,29 @@ export function watchdogSnapshot() {
   for (const [target, entry] of s.quarantine instanceof Map ? s.quarantine : []) {
     quarantine.push({ target, ...entry })
   }
+  const esc = s.escalation || {}
+  const now = Date.now()
+  const recentCrashes = Array.isArray(esc.crashes) ? esc.crashes.filter((at) => now - at <= CRASH_WINDOW_MS) : []
+  const crashLevel = esc.level || (recentCrashes.length >= 3 ? 'L3' : recentCrashes.length >= 2 ? 'L2' : recentCrashes.length >= 1 ? 'L1' : 'L0')
+  const nextLevel = crashLevel === 'L0' ? 'L1' : crashLevel === 'L1' ? 'L2' : crashLevel === 'L2' ? 'L3' : null
+  const lastPlan = s.plans && s.plans.length > 0 ? s.plans[s.plans.length - 1] : null
+  const crashPlan = {
+    level: crashLevel,
+    previousLevel: esc.previousLevel || null,
+    crashes: recentCrashes.length,
+    windowMs: CRASH_WINDOW_MS,
+    resetMs: CRASH_RESET_MS,
+    lastCrashAt: esc.lastCrashAt || null,
+    resetAt: esc.lastCrashAt ? esc.lastCrashAt + CRASH_RESET_MS : null,
+    nextLevel,
+    steps: crashLevel === 'L3' ? ['isolate-target', 'revert-changed', 'safe-mode'] : crashLevel === 'L2' ? ['isolate-target', 'revert-changed'] : crashLevel === 'L1' ? ['isolate-target'] : [],
+    lastPlan: lastPlan
+      ? { at: lastPlan.at, level: lastPlan.level, target: lastPlan.target || null, inFlight: Boolean(lastPlan.inFlight), applied: Boolean(lastPlan.applied), fallback: lastPlan.fallback || null, targets: lastPlan.targets || [] }
+      : null,
+  }
   return {
     ok: Boolean(s.startedAt),
+    crashPlan,
     mode: s.mode,
     enforce: s.enforce,
     startedAt: s.startedAt,
