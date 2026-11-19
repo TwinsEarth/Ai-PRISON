@@ -2,6 +2,17 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.7.5] — 2026-11-19
+
+### Changed
+
+- Memory watch waterline is now percentage-banded instead of level-text:
+  **≤30% relaxed (green), 31–70% normal (blue), 71–95% warning (yellow),
+  ≥96% danger (red)**. The card shows the band label with the current percent
+  and the progress bar uses the band color; the internal waterline level still
+  drives enforcement/rollback logic and is unchanged.
+
+## [1.7.4] — 2026-11-19
 ## [1.7.4] — 2026-11-19
 
 ### Changed

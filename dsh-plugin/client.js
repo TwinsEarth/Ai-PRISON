@@ -81,6 +81,9 @@ window.__ModuleLoader__.load({
         'watchdog.waterline': 'Waterline',
         'watchdog.thresholds': 'Warn / pause / block',
         'waterline.ok': 'OK',
+        'waterline.easy': 'Relaxed',
+        'waterline.normal': 'Normal',
+        'waterline.danger': 'Danger',
         'waterline.warn': 'Warning',
         'waterline.pause': 'Paused',
         'waterline.block': 'Blocked',
@@ -162,6 +165,9 @@ window.__ModuleLoader__.load({
         'watchdog.waterline': '水位',
         'watchdog.thresholds': '提醒 / 暂停 / 禁止',
         'waterline.ok': '正常',
+        'waterline.easy': '轻松',
+        'waterline.normal': '正常',
+        'waterline.danger': '危险',
         'waterline.warn': '警告',
         'waterline.pause': '暂停',
         'waterline.block': '禁止',
@@ -306,7 +312,8 @@ window.__ModuleLoader__.load({
     }
 
     function Pill({ tone, text }) {
-      const color = tone === 'ok' ? C.ok.color : tone === 'error' ? C.error.color : C.muted.color
+      const palette = { ok: C.ok.color, info: '#2563eb', warn: '#b45309', error: C.error.color }
+      const color = palette[tone] || C.muted.color
       return h('span', { style: C.pill }, h('span', { style: { ...C.dot, background: color } }), h('span', null, text))
     }
 
@@ -356,12 +363,6 @@ window.__ModuleLoader__.load({
         body: JSON.stringify({ action, target }),
       }).then((response) => response.json())
     }
-    function waterlineText(level) {
-      if (level === 'block') return t('waterline.block')
-      if (level === 'pause') return t('waterline.pause')
-      if (level === 'warn') return t('waterline.warn')
-      return t('waterline.ok')
-    }
 
     function MemoryCard({ watchdog }) {
       if (!watchdog) {
@@ -375,7 +376,17 @@ window.__ModuleLoader__.load({
       const heap = watchdog.heap || {}
       const thresholds = watchdog.thresholds || {}
       const ratio = heap.heapLimit > 0 ? Math.min(1, heap.heapUsed / heap.heapLimit) : 0
-      const tone = watchdog.waterline === 'ok' ? C.ok.color : watchdog.waterline === 'warn' ? '#b45309' : C.error.color
+      const percent = Math.floor(ratio * 100)
+      // 水位色带：≤30% 轻松（绿）、31–70% 正常（蓝）、71–95% 警告（黄）、≥96% 危险（红）
+      const band =
+        percent <= 30
+          ? { tone: 'ok', key: 'waterline.easy', color: C.ok.color }
+          : percent <= 70
+            ? { tone: 'info', key: 'waterline.normal', color: '#2563eb' }
+            : percent <= 95
+              ? { tone: 'warn', key: 'waterline.warn', color: '#b45309' }
+              : { tone: 'error', key: 'waterline.danger', color: C.error.color }
+      const tone = band.color
       return h(
         'section',
         { style: C.card },
@@ -384,7 +395,7 @@ window.__ModuleLoader__.load({
           { style: C.cardHead },
           t('watchdog.title'),
           h('span', { style: { ...C.chip, marginLeft: 8 } }, (watchdog.enforce ? t('watchdog.modeEnforce') : t('watchdog.mode'))),
-          h(Pill, { tone: watchdog.waterline === 'ok' ? 'ok' : 'error', text: `${t('watchdog.waterline')}: ${waterlineText(watchdog.waterline)}` }),
+          h(Pill, { tone: band.tone, text: `${t('watchdog.waterline')}: ${t(band.key)} · ${percent}%` }),
         ),
         h(
           'div',
@@ -395,7 +406,7 @@ window.__ModuleLoader__.load({
           'div',
           { style: C.grid },
           h('div', { style: C.key }, t('watchdog.heap')),
-          h('div', { style: C.mono }, `${Math.round(heap.heapUsed / 1048576)} MB / ${Math.round(heap.heapLimit / 1048576)} MB（${Math.round(ratio * 100)}%）`),
+          h('div', { style: C.mono }, `${Math.round(heap.heapUsed / 1048576)} MB / ${Math.round(heap.heapLimit / 1048576)} MB（${percent}%）`),
           h('div', { style: C.key }, t('watchdog.rss')),
           h('div', { style: C.mono }, `${Math.round((heap.rss || 0) / 1048576)} MB`),
           h('div', { style: C.key }, t('watchdog.thresholds')),

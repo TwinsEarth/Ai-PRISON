@@ -76,6 +76,13 @@ test('the enforce and prison cards no longer fall back to raw keys', () => {
   }
 })
 
+test('memory waterline band labels exist in both dictionaries', () => {
+  for (const key of ['waterline.easy', 'waterline.normal', 'waterline.warn', 'waterline.danger']) {
+    assert.ok(dictionaryBody('en').includes(`'${key}'`), `en has ${key}`)
+    assert.ok(dictionaryBody('zh').includes(`'${key}'`), `zh has ${key}`)
+  }
+})
+
 test('locale JSON carries market metadata only; runtime strings have one source', () => {
   for (const language of ['en', 'zh']) {
     const json = JSON.parse(fs.readFileSync(path.join(root, 'locale', `${language}.json`), 'utf8'))
