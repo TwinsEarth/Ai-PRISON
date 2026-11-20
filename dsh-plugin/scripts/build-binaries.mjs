@@ -47,7 +47,9 @@ function toolVersion() {
   }
   const tag = git('describe', '--tags', '--match', 'v[0-9]*', '--abbrev=0')
   if (tag.startsWith('v')) return tag.slice(1)
-  return '1.0.0'
+  // Never fall back to a guessed version: a silent default here is what stamped
+  // the 1.7.7 release assets with `aiprison 1.0.0` while npm shipped 1.0.9.
+  throw new Error('cannot determine the CLI version: set AIPRISON_VERSION or declare version in cmd/aiprison/main.go')
 }
 
 function buildTime() {

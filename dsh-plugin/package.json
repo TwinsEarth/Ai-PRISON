@@ -58,7 +58,8 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "coverage": "node --test --experimental-test-coverage --test-coverage-lines=70 --test-coverage-branches=65 --test-coverage-functions=75 test/*.test.mjs",
-    "check": "node scripts/release-check.mjs"
+    "check": "node scripts/release-check.mjs",
+    "prepublishOnly": "node scripts/release-check.mjs"
   },
   "dsh": {
     "bundle": {

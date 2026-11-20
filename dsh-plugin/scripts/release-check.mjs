@@ -28,6 +28,17 @@ function readJson(relative) {
   return JSON.parse(fs.readFileSync(path.join(pluginRoot, relative), 'utf8'))
 }
 
+/** Version declared by the Go CLI itself (cmd/aiprison/main.go), if the repo carries it. */
+function declaredCliVersion() {
+  try {
+    const src = fs.readFileSync(path.join(pluginRoot, '..', 'cmd', 'aiprison', 'main.go'), 'utf8')
+    const declared = src.match(/\bversion\s*=\s*"([0-9][^"]*)"/)
+    return declared ? declared[1] : null
+  } catch {
+    return null
+  }
+}
+
 const pkg = readJson('package.json')
 const market = readJson('market/index.json')
 const TARGETS = [
@@ -110,6 +121,30 @@ check('the bundled CLI for this platform answers version and levels', () => {
     const run = spawnSync(file, args, { encoding: 'utf8' })
     if (run.status !== 0) throw new Error(`${args.join(' ')} exited ${run.status}: ${run.stderr}`)
   }
+})
+
+check('the bundled CLI carries the declared version, commit and build time', () => {
+  // The 1.7.7 assets shipped a CLI that answered `aiprison 1.0.0` while the Go
+  // source declared 1.0.9, because the build silently fell back to a default and
+  // this gate only checked the exit code. Pin the reported metadata now.
+  const platform = { win32: 'windows', darwin: 'macos', linux: 'linux' }[process.platform]
+  const arch = { x64: 'amd64', arm64: 'arm64' }[process.arch]
+  const exe = process.platform === 'win32' ? 'aiprison.exe' : 'aiprison'
+  const file = path.join(pluginRoot, 'bin', `${platform}-${arch}`, exe)
+  if (!fs.existsSync(file)) throw new Error(`no bundled binary for ${platform}-${arch}`)
+  const run = spawnSync(file, ['version', '-v'], { encoding: 'utf8' })
+  if (run.status !== 0) throw new Error(`version -v exited ${run.status}: ${run.stderr}`)
+  const out = `${run.stdout || ''}${run.stderr || ''}`
+  const reported = out.match(/aiprison\s+([0-9]+\.[0-9]+\.[0-9]+)/)
+  if (!reported) throw new Error(`cannot parse the CLI version from: ${out.trim()}`)
+  const declared = declaredCliVersion()
+  if (declared && reported[1] !== declared) {
+    throw new Error(`bundled CLI reports ${reported[1]} but cmd/aiprison/main.go declares ${declared}`)
+  }
+  const commit = out.match(/commit:\s*(\S+)/)
+  if (!commit || /^unknown$/i.test(commit[1])) throw new Error('bundled CLI carries no build commit')
+  const built = out.match(/built:\s*(\S+)/)
+  if (!built || /^unknown$/i.test(built[1])) throw new Error('bundled CLI carries no build time')
 })
 
 check('artwork stays inside the documented limits and rules', () => {

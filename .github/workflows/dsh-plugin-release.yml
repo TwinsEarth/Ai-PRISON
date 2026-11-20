@@ -40,7 +40,22 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Resolve the bundled CLI version
+        id: cli_version
+        run: |
+          set -euo pipefail
+          version=$(grep -oP '^\s*version\s*=\s*"\K[0-9][^"]*' cmd/aiprison/main.go | head -n1)
+          if [ -z "${version}" ]; then
+            echo "cannot read the CLI version from cmd/aiprison/main.go" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "bundled CLI version: ${version}"
+
       - name: Build the six bundled CLIs
+        env:
+          # Pass the version explicitly: the 1.7.7 run silently stamped 1.0.0.
+          AIPRISON_VERSION: ${{ steps.cli_version.outputs.version }}
         run: node dsh-plugin/scripts/build-binaries.mjs
 
       # SignPath (free for OSS) Authenticode-signs the Windows binaries. The

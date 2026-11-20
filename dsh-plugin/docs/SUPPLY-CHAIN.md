@@ -111,6 +111,57 @@ to ~1.5 MB, but it requires publishing seven packages, keeping their versions in
 lockstep, and reworking the release/2FA flow. The all-platform npm package stays
 the default until that is explicitly approved.
 
+## 6. npm and GitHub must ship the same bundled CLI
+
+1.7.7 was released from two different build paths and nobody noticed, because
+the gate only checked that `aiprison version` exited 0:
+
+| Channel | bundled CLI | commit | built |
+|---|---|---|---|
+| GitHub Release tarball / platform packs | `aiprison 1.0.0` | `fdbbef7` | 2026-11-19T16:12:46Z |
+| npm `@twinsearth/ai-prison-dsh-plugin@1.7.7` | `aiprison 1.0.9` | `4275624` | 2026-11-17T09:58:13Z |
+
+The two tarballs share 42 of 48 files byte-for-byte; all six binaries differ
+(GitHub ones are 16–24% smaller because `build-binaries.mjs` uses `-trimpath`
+and `-ldflags "-s -w"`). Behaviour was verified identical (`levels`, `demo`,
+`drill` produce byte-identical output), so this is a metadata/packaging defect,
+not a content one — but a user reporting a bug would quote the wrong version.
+
+**What now prevents it**
+
+1. The release workflow resolves the version from `cmd/aiprison/main.go` in a
+   dedicated step and passes it as `AIPRISON_VERSION` to the build, instead of
+   letting the script guess.
+2. `scripts/build-binaries.mjs` **throws** when no version can be resolved; the
+   silent `'1.0.0'` fallback is gone.
+3. `scripts/release-check.mjs` gained the gate *“the bundled CLI carries the
+   declared version, commit and build time”*: the reported semver must equal the
+   version declared in `cmd/aiprison/main.go`, and `commit`/`built` must not be
+   `unknown`. A build stamped `1.0.0` now fails the gate before packing.
+4. `package.json` has a `prepublishOnly` hook that re-runs
+   `scripts/release-check.mjs`, so `npm publish` refuses to ship a tarball whose
+   bundled CLI disagrees with `cmd/aiprison/main.go` or lacks a commit/build
+   stamp. (It stays fast — no Go rebuild — and is a no-op gate when publishing a
+   tarball that has no Go source beside it.)
+
+**Recommended publish path**
+
+Publish the tarball the workflow already built, rather than repacking locally:
+
+```bash
+gh run download <run-id> --repo TwinsEarth/Ai-PRISON --name dsh-plugin-assets
+npm publish ./twinsearth-ai-prison-dsh-plugin-<version>.tgz --access public
+```
+
+That keeps npm, the GitHub Release assets and `SHA256SUMS` on one byte-identical
+build. The `prepublishOnly` hook remains the safety net for the manual path.
+
+**Known limitation after this change:** the npm tarball and the GitHub tarball
+can still differ at the byte level, because `npm pack` is run separately in each
+place; only the *bundled binaries and file contents* are now pinned to be equal.
+If byte identity across channels is required, publish only the CI artifact.
+
+
 ## 5. SignPath OSS signing (CI wired)
 
 SignPath.io signs open-source Windows binaries for free. The release workflow
