@@ -94,6 +94,39 @@ test('classifyExit separates clean, startup, sync-blocked, heap-oom and exit-1 d
   assert.equal(classifyExit(other, { exitCode: 5, signal: 'SIGSEGV' }), 'abnormal-exit')
 })
 
+test('a pegged CPU plateau below the kill line classifies as sync-blocked', () => {
+  const state = createSupervisorState(supervisorThresholds(4 * GB))
+  evaluateSample(state, { rssBytes: 2000 * MB, cpuSeconds: 10 }, T0)
+  const hot = evaluateSample(state, { rssBytes: 3400 * MB, cpuSeconds: 11 }, T0 + 1000)
+  assert.equal(hot.action, 'warn')
+  assert.equal(state.peakCpuRatio, 1)
+  // No sampling gap at all: the reachable signature is CPU saturation, not a gap.
+  assert.equal(classifyExit(state, { exitCode: 3, gapMs: 1000 }), 'sync-blocked')
+})
+
+test('memory that crossed the kill line stays heap-oom even with a pegged CPU', () => {
+  const state = createSupervisorState(supervisorThresholds(4 * GB))
+  evaluateSample(state, { rssBytes: 2000 * MB, cpuSeconds: 10 }, T0)
+  evaluateSample(state, { rssBytes: 3900 * MB, cpuSeconds: 11 }, T0 + 1000)
+  assert.equal(state.peakCpuRatio, 1)
+  assert.equal(classifyExit(state, { exitCode: 3, gapMs: 1000 }), 'heap-oom')
+})
+
+test('a kill performed by the supervisor is attributed to itself', () => {
+  const state = createSupervisorState(supervisorThresholds(4 * GB))
+  evaluateSample(state, { rssBytes: 3900 * MB, cpuSeconds: 10 }, T0)
+  assert.equal(classifyExit(state, { killed: true }), 'supervisor-kill')
+})
+
+test('a host that quits after our exit request is not reported as a crash', () => {
+  const state = createSupervisorState(supervisorThresholds(4 * GB))
+  evaluateSample(state, { rssBytes: 3900 * MB, cpuSeconds: 10 }, T0)
+  state.requestedAt = T0
+  assert.equal(classifyExit(state, { requestedBySupervisor: true }), 'exit-requested')
+  // Observe-only runs only logged the request, so the memory story still stands.
+  assert.equal(classifyExit(state, {}), 'heap-oom')
+})
+
 test('describeVerdict carries the numbers an incident needs', () => {
   const state = createSupervisorState(supervisorThresholds(4 * GB))
   evaluateSample(state, { rssBytes: 3400 * MB }, T0)

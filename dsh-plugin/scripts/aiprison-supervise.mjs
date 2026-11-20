@@ -14,7 +14,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { createSupervisorState, evaluateSample, supervisorThresholds, describeVerdict } from '../lib/supervisor.js'
+import { createSupervisorState, evaluateSample, supervisorThresholds, describeVerdict, classifyExit } from '../lib/supervisor.js'
 
 const args = process.argv.slice(2)
 const flag = (name) => args.includes(`--${name}`)
@@ -42,10 +42,19 @@ fs.mkdirSync(dataDir, { recursive: true })
 const curveFile = path.join(dataDir, `supervisor-${pid}-${Date.now()}.jsonl`)
 const verdictFile = path.join(dataDir, 'supervisor-verdict.json')
 
-function readRss(pidToRead) {
-  const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', `$p=Get-Process -Id ${pidToRead} -ErrorAction SilentlyContinue; if($p){[int64]$p.WorkingSet64}else{-1}`], { windowsHide: true, encoding: 'utf8' })
-  const n = Number(String(r.stdout || '').trim())
-  return Number.isFinite(n) && n > 0 ? n : -1
+function readSample(pidToRead) {
+  // One process query returns both memory and CPU seconds, so the extra
+  // evidence costs no additional powershell spawn per tick.
+  const r = spawnSync(
+    'powershell.exe',
+    ['-NoProfile', '-Command', `$p=Get-Process -Id ${pidToRead} -ErrorAction SilentlyContinue; if($p){"$([int64]$p.WorkingSet64) $([double]$p.CPU)"}else{"-1"}`],
+    { windowsHide: true, encoding: 'utf8' },
+  )
+  const parts = String(r.stdout || '').trim().split(/\s+/)
+  const rss = Number(parts[0])
+  if (!Number.isFinite(rss) || rss <= 0) return null
+  const cpu = Number(parts[1])
+  return { rssBytes: rss, cpuSeconds: Number.isFinite(cpu) ? cpu : undefined }
 }
 
 function requestExit(pidToStop) {
@@ -71,19 +80,21 @@ let timer = null
 
 function tick() {
   if (stopping) return
-  const rssBytes = readRss(pid)
-  if (rssBytes < 0) {
+  const sample = readSample(pid)
+  if (!sample) {
     stopping = true
     if (timer) clearInterval(timer)
     const gapMs = state.lastAt === null ? null : Date.now() - state.lastAt
-    const verdict = state.lastAt === null ? 'host-gone-before-sampling' : 'host-exited'
-    writeVerdict({ verdict, gapMs, curveFile: path.basename(curveFile) })
-    console.log(`[supervise] ${verdict} ${describeVerdict(state)}`)
+    const verdict = state.lastAt === null
+      ? 'host-gone-before-sampling'
+      : classifyExit(state, { gapMs, samples: state.samples, requestedBySupervisor: confirmKill && state.requestedAt !== null })
+    writeVerdict({ verdict, gapMs, cpuPeakRatio: state.peakCpuRatio, curveFile: path.basename(curveFile) })
+    console.log(`[supervise] ${verdict} ${describeVerdict(state)} gap=${gapMs ?? 'n/a'}ms cpuPeak=${state.peakCpuRatio}`)
     process.exit(0)
   }
-  const decision = evaluateSample(state, { rssBytes }, Date.now())
+  const decision = evaluateSample(state, sample, Date.now())
   try {
-    fs.appendFileSync(curveFile, `${JSON.stringify({ t: new Date().toISOString(), rssMB: decision.rssMB, rate: decision.rate, action: decision.action })}\n`)
+    fs.appendFileSync(curveFile, `${JSON.stringify({ t: new Date().toISOString(), rssMB: decision.rssMB, rate: decision.rate, cpuRatio: state.lastCpuRatio, action: decision.action })}\n`)
   } catch {
     // curve file is diagnostic only
   }
@@ -94,7 +105,7 @@ function tick() {
     if (confirmKill) {
       requestExit(pid)
       const fallback = setTimeout(() => {
-        const alive = readRss(pid) > 0
+        const alive = readSample(pid)
         if (alive) {
           console.log('[supervise] graceful request did not take effect, forcing kill')
           forceKill(pid)
@@ -106,7 +117,7 @@ function tick() {
   if (decision.action === 'kill') {
     console.log(`[supervise] killing ${pid} ${decision.reason}`)
     forceKill(pid)
-    writeVerdict({ curveFile: path.basename(curveFile) })
+    writeVerdict({ verdict: 'supervisor-kill', cpuPeakRatio: state.peakCpuRatio, curveFile: path.basename(curveFile) })
     stopping = true
     if (timer) clearInterval(timer)
     process.exit(0)

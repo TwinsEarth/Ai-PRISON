@@ -2,6 +2,31 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.8.0] — unreleased
+
+### Added — external memory supervisor
+
+- `lib/supervisor.js`: pure decision logic — thresholds derived from the host
+  heap cap (warn 73% / kill 93%), one-shot `request-exit`, `graceMs` before
+  `kill`, and seven-way post-mortem attribution.
+- `scripts/aiprison-supervise.mjs`: standalone process that samples the host
+  RSS and CPU seconds from the OS, writes a JSONL curve plus
+  `supervisor-verdict.json`. Hidden by default: observe-only unless
+  `--confirm-kill` is passed.
+- Covers the two blind spots of the in-process watchdog: growth while the JS
+  thread is synchronously blocked, and growth before the plugin loads.
+
+### Fixed — real-machine attribution
+
+- The CLI now actually calls `classifyExit` when the host disappears; before
+  this it only wrote `host-exited`, so attribution existed solely in unit tests.
+- `sync-blocked` no longer requires a sampling gap of three intervals, which
+  cannot happen in practice (the next tick after death is one interval away).
+  The reachable signature is a peak between the warn and kill lines with the
+  CPU pegged (≥ 0.8), which is what a stalled host looks like from outside.
+- Added `exit-requested` (we asked it to quit and it did — not a crash) and
+  `supervisor-kill` (a forced kill is attributed to the supervisor).
+
 ## [1.7.7] — 2026-11-19
 
 ### Fixed

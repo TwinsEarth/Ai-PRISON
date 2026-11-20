@@ -24,6 +24,7 @@ export const SUPERVISOR_DEFAULTS = {
   rateStrikes: 2,
   graceMs: 5000,
   staleSamples: 3,
+  cpuSaturation: 0.8,
 }
 
 /** Absolute thresholds derived from the host heap cap (same ratios as the in-process waterline). */
@@ -49,6 +50,9 @@ export function createSupervisorState(thresholds) {
     peakMB: 0,
     lastAt: null,
     lastRssMB: null,
+    lastCpuSeconds: null,
+    lastCpuRatio: 0,
+    peakCpuRatio: 0,
     requestedAt: null,
     verdict: 'ok',
     reason: null,
@@ -65,6 +69,17 @@ export function evaluateSample(state, sample, now = Date.now()) {
   const rssMB = Math.max(0, Math.round((Number(sample.rssBytes) || 0) / (1024 * 1024)))
   const gapMs = state.lastAt === null ? 0 : now - state.lastAt
   const rate = state.lastAt !== null && gapMs > 0 ? Math.round(((rssMB - state.lastRssMB) / (gapMs / 1000)) * 10) / 10 : 0
+
+  // CPU seconds come from the OS counter, so they keep advancing while the host's
+  // JS thread is blocked. A pegged ratio next to a plateau is the only external
+  // evidence that the process is spinning rather than filling its heap.
+  const cpuSeconds = Number(sample.cpuSeconds)
+  if (Number.isFinite(cpuSeconds) && state.lastCpuSeconds !== null && gapMs > 0) {
+    const ratio = (cpuSeconds - state.lastCpuSeconds) / (gapMs / 1000)
+    state.lastCpuRatio = Math.max(0, Math.min(8, Math.round(ratio * 100) / 100))
+    state.peakCpuRatio = Math.max(state.peakCpuRatio, state.lastCpuRatio)
+  }
+  if (Number.isFinite(cpuSeconds)) state.lastCpuSeconds = cpuSeconds
 
   state.samples += 1
   state.peakMB = Math.max(state.peakMB, rssMB)
@@ -113,14 +128,26 @@ export function evaluateSample(state, sample, now = Date.now()) {
  * Post-mortem classification from the recorded curve plus the exit status.
  * The curve is the only evidence left once the host process is gone.
  */
-export function classifyExit(state, { exitCode = null, signal = null, gapMs = null, samples = null } = {}) {
+export function classifyExit(state, { exitCode = null, signal = null, gapMs = null, samples = null, killed = false, requestedBySupervisor = false } = {}) {
   const seen = Number.isFinite(samples) ? samples : state.samples
   const peakMB = state.peakMB
   const t = state.thresholds
+  if (killed) return 'supervisor-kill'
   const abnormal = exitCode !== 0 || signal !== null
   if (!abnormal) return 'clean-exit'
   if (seen === 0) return 'startup-died-before-sampling'
+  // We asked it to quit and it did: the memory reading explains why we asked,
+  // not why it died, so do not dress this up as a crash. Observe-only runs
+  // never set this, because there we only logged the request.
+  if (requestedBySupervisor) return 'exit-requested'
+  // Sampling gaps only grow when the sampler itself was starved; a host that
+  // simply vanished is caught on the very next tick, so this branch rarely fires.
   if (Number.isFinite(gapMs) && gapMs >= t.intervalMs * t.staleSamples && peakMB >= t.warnMB) return 'sync-blocked'
+  // The reachable signature: high memory that never reached the kill line,
+  // with the CPU pegged right up to death. A heap that was truly exhausted
+  // climbs past the kill line instead.
+  const cpuPegged = state.peakCpuRatio >= (t.cpuSaturation ?? 0.8)
+  if (peakMB >= t.warnMB && peakMB < t.killMB && cpuPegged) return 'sync-blocked'
   if (peakMB >= t.warnMB) return 'heap-oom'
   if (exitCode === 1) return 'exit-1'
   return 'abnormal-exit'
