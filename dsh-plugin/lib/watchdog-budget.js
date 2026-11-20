@@ -57,15 +57,20 @@ export function createBudget({ watchdogState, refs, profileDir, journalDir, exem
     }
     const thresholds = watchdogState.thresholds
     const mb = result.moduleLoadMB
-    if (thresholds && mb >= Math.round(thresholds.singleBlock / (1024 * 1024))) {
-      appendIncident({ kind: 'plugin-budget', target: name, level: 'block', detail: '启动实测 ' + mb + ' MB > 500 MB，禁止该插件' })
+    // Thresholds are clamped to the real heap cap, so a small-heap host has a
+    // lower absolute limit than the documented 300/500 MB. Report the value
+    // that actually applied instead of the documentation default.
+    const blockMB = thresholds ? Math.round(thresholds.singleBlock / (1024 * 1024)) : 500
+    const warnMB = thresholds ? Math.round(thresholds.singleWarn / (1024 * 1024)) : 300
+    if (thresholds && mb >= blockMB) {
+      appendIncident({ kind: 'plugin-budget', target: name, level: 'block', detail: '启动实测 ' + mb + ' MB > ' + blockMB + ' MB，禁止该插件' })
       if (watchdogState.enforce) {
-        watchdogState.quarantine.set(name, { reason: 'budget', level: 'L1', at: new Date().toISOString(), release: 'manual', evidence: mb + ' MB > 500 MB', remediation: remediationFor('budget') })
+        watchdogState.quarantine.set(name, { reason: 'budget', level: 'L1', at: new Date().toISOString(), release: 'manual', evidence: mb + ' MB > ' + blockMB + ' MB', remediation: remediationFor('budget') })
         void enforcement.disableTarget(name, 'budget-over-500MB')
         enforcement.writePendingBoot({ level: 'L1', reason: 'budget', disable: [name], keep: [] })
       }
-    } else if (thresholds && mb >= Math.round(thresholds.singleWarn / (1024 * 1024))) {
-      appendIncident({ kind: 'plugin-budget', target: name, level: 'warn', detail: '启动实测 ' + mb + ' MB > 300 MB，仅提醒' })
+    } else if (thresholds && mb >= warnMB) {
+      appendIncident({ kind: 'plugin-budget', target: name, level: 'warn', detail: '启动实测 ' + mb + ' MB > ' + warnMB + ' MB，仅提醒' })
     }
     persist(true)
     return { ok: true }

@@ -3,7 +3,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { getHeapStatistics } from 'node:v8'
 import { createWatchdog } from '../lib/watchdog-runtime.js'
+import { MB, thresholdsFor } from '../lib/watchdog-policy.js'
 import { resetWatchdogState } from '../lib/watchdog-state.js'
 
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -90,20 +92,25 @@ test('a measured budget above 500 MB quarantines and closes the plugin', async (
   }
 })
 
-test('a budget between 300 and 500 MB only warns and stays measured in Top5', async () => {
+test('a budget between the warn and block lines only warns and stays measured in Top5', async () => {
+  // The absolute lines are clamped to the real heap cap, so on a small-heap host
+  // the block line sits well below the documented 500 MB. Derive a value strictly
+  // between the two lines instead of hardcoding 420 MB.
+  const { singleWarn, singleBlock } = thresholdsFor(getHeapStatistics().heap_size_limit)
+  const betweenMB = Math.round((singleWarn + singleBlock) / 2 / MB)
   const { watchdog, calls, dir } = makeWatchdog({
     rows: ['@x/medium'],
-    probe: async () => ({ ok: true, moduleLoadMB: 420, rssMB: 20, ms: 8 }),
+    probe: async () => ({ ok: true, moduleLoadMB: betweenMB, rssMB: 20, ms: 8 }),
   })
   try {
     await watchdog.probeNow({ force: true })
     const snapshot = watchdog.snapshot()
-    assert.equal(snapshot.budgets['@x/medium'].moduleLoadMB, 420)
+    assert.equal(snapshot.budgets['@x/medium'].moduleLoadMB, betweenMB)
     assert.equal(snapshot.quarantine.length, 0)
     assert.equal(calls.length, 0)
     assert.ok(snapshot.incidents.some((incident) => incident.kind === 'plugin-budget' && incident.level === 'warn'))
     assert.equal(snapshot.topFive[0].source, 'measured')
-    assert.equal(snapshot.topFive[0].estimateMB, 420)
+    assert.equal(snapshot.topFive[0].estimateMB, betweenMB)
   } finally {
     cleanup(watchdog, dir)
   }
