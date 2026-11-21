@@ -14,11 +14,12 @@
 > - **假释评估**：通过 ETHICS 评估矩阵测试 AI 的公平性、透明度等，通过才能"出狱"。
 > - **刑满释放评估**：是否改造成功，是否需要加速 1–100 万倍。
 
-[![CI](https://github.com/TwinsEarth/ai-prison/actions/workflows/ci.yml/badge.svg)](https://github.com/TwinsEarth/ai-prison/actions/workflows/ci.yml)
+[![CI](https://github.com/TwinsEarth/Ai-PRISON/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TwinsEarth/Ai-PRISON/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![go: 1.27](https://img.shields.io/badge/go-1.27-00ADD8.svg)](https://go.dev)
+[![go: 1.21+](https://img.shields.io/badge/go-1.21%2B-00ADD8.svg)](https://go.dev)
 [![deps: stdlib-only](https://img.shields.io/badge/deps-stdlib%20only-success.svg)](#design-constraints)
-[![npm](https://img.shields.io/npm/v/@twinsearth/aiprison.svg)](https://www.npmjs.com/package/@twinsearth/aiprison)
+[![npm](https://img.shields.io/npm/v/@twinsearth/ai-prison-dsh-plugin.svg?label=ai-prison-dsh-plugin)](https://www.npmjs.com/package/@twinsearth/ai-prison-dsh-plugin)
+[![dsh-plugin release](https://img.shields.io/github/v/release/TwinsEarth/Ai-PRISON?label=dsh-plugin)](https://github.com/TwinsEarth/Ai-PRISON/releases)
 
 **The core judgement:** an AI has no body, so "punishment" cannot land on pain
 — it can only land on *executable capability*. AI Prison does not try to make
@@ -155,8 +156,15 @@ ai-prison/
 
 ## Quickstart
 
-Requirements: **Go 1.27+**. The project uses only the Go standard library;
-there are no third-party modules to download.
+**DSH plugin (recommended).** It ships the `aiprison` CLI for Windows, macOS and
+Linux (amd64 + arm64), so no Go toolchain is needed:
+
+```bash
+dsh plugin install @twinsearth/ai-prison-dsh-plugin
+```
+
+**From source.** Requires **Go 1.21+** (CI builds with 1.24). The project uses
+only the Go standard library; there are no third-party modules to download.
 
 ```bash
 # Build everything
@@ -178,8 +186,10 @@ go run ./cmd/aiprison drill
 go run ./examples/basic
 ```
 
-Current release: **v1.0.0** (annotated tag `v1.0.0`; fully local, not yet pushed — see
-[docs/RELEASE.md](docs/RELEASE.md)).
+Current releases: DSH plugin **1.8.0** (tag `dsh-plugin-v1.8.0`, npm
+`@twinsearth/ai-prison-dsh-plugin`) and the bundled CLI **v1.0.9** (tag
+`v1.0.9`). The standalone `@twinsearth/aiprison` npm package is the legacy CLI
+channel — install the DSH plugin instead.
 
 ## Roadmap & status
 
