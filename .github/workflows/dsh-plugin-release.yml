@@ -193,7 +193,7 @@ jobs:
 
       - name: Unit and integration tests (windows)
         working-directory: dsh-plugin
-        run: node --test test/*.test.mjs
+        run: node --test (Get-ChildItem test -Filter *.test.mjs).FullName
 
   release:
     name: publish GitHub Release
