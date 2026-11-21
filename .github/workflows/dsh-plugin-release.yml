@@ -174,7 +174,21 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Resolve the bundled CLI version
+        id: cli_version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(grep -oP '^\s*version\s*=\s*"\K[0-9][^"]*' cmd/aiprison/main.go | head -n1)
+          if [ -z "${version}" ]; then
+            echo "cannot read the CLI version from cmd/aiprison/main.go" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
       - name: Build the six bundled CLIs
+        env:
+          AIPRISON_VERSION: ${{ steps.cli_version.outputs.version }}
         run: node dsh-plugin/scripts/build-binaries.mjs
 
       - name: Unit and integration tests (windows)
