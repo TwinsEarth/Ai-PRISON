@@ -2,7 +2,7 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
-## [1.8.0] — unreleased
+## [1.8.0] — 2026-11-21
 
 ### Added — external memory supervisor
 

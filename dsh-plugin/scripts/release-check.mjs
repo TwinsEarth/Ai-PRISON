@@ -236,10 +236,14 @@ check('npm pack ships the runtime, the locales, the docs and the binaries', () =
     'bin/windows-amd64/aiprison.exe',
     'bin/linux-amd64/aiprison',
     'bin/macos-arm64/aiprison',
+    'scripts/aiprison-supervise.mjs',
   ]
   for (const relative of required) if (!names.includes(relative)) throw new Error(`npm pack is missing ${relative}`)
   if (names.some((name) => name.startsWith('node_modules/') || name.startsWith('.git/'))) throw new Error('npm pack includes excluded directories')
-  if (names.some((name) => name.startsWith('test/') || name.startsWith('scripts/'))) throw new Error('npm pack includes development-only files')
+  // scripts/ is development-only except the supervisor CLI, which operators run
+  // from the installed package; ship that one file and nothing else from there.
+  const shippedScripts = new Set(['scripts/aiprison-supervise.mjs'])
+  if (names.some((name) => name.startsWith('test/') || (name.startsWith('scripts/') && !shippedScripts.has(name)))) throw new Error('npm pack includes development-only files')
   if (!(info.size > 1_000_000) || info.size > 60_000_000) throw new Error(`tarball size looks wrong: ${info.size}`)
 })
 
