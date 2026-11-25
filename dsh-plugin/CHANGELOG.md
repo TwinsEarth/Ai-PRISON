@@ -2,6 +2,38 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.9.3] — 2026-11-25
+
+### Fixed — ledger repair is now byte-exact and crash-safe
+
+- `repair-tail` keeps the `\n` that terminates the last committed record, so a
+  repaired segment is byte-identical to its pre-tear state and stays appendable.
+  1.9.2 dropped that newline, which turned a 7-byte torn tail into a
+  53,323 → 53,322 B file whose last record had no terminator, and reported
+  "removed 7 bytes" while the file had actually lost 8.
+- The repair rewrite is published through a temp file plus atomic rename instead
+  of `O_TRUNC` in place. A crash during repair can no longer widen a few torn
+  bytes into a fully truncated segment; a leftover `.seg-*.tmp` is discarded on
+  the next open.
+- `segmentForSeq` now names the segment that actually holds the failing sequence
+  (the last segment whose start is ≤ seq). Multi-segment ledgers no longer blame
+  `seg-0000000000.log` for a fault that happened in a later segment.
+
+### Tests
+
+- New `internal/store/repair_test.go`:
+  `TestRepairTornTailRestoresExactBytes` (restores the exact bytes, keeps the
+  trailing newline, leaves no temp file, stays appendable and re-verifies),
+  `TestRepairTornTailLongerTail`, and `TestIntegrityErrorNamesTheRightSegment`
+  (fails against the 1.9.2 attribution logic, passes after the fix).
+
+### Packaging
+
+- CLI stays at **1.0.9** (same feature set); the bundled six-platform binaries
+  are rebuilt against this release, so `aiprison version -v` reports a
+  different `commit:` than the 1.9.2 build and the two builds stay
+  distinguishable.
+
 ## [1.9.2] — 2026-11-25
 
 ### Fixed — data safety and platform truth

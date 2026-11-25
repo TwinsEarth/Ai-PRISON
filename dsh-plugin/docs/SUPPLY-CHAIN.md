@@ -102,9 +102,9 @@ npm install ./twinsearth-ai-prison-dsh-plugin-<version>-windows-amd64.tgz
 
 Measured with 1.7.2: windows-amd64 1.56 MB, windows-arm64 1.40 MB,
 macos-amd64 1.52 MB, macos-arm64 1.41 MB, linux-amd64 1.50 MB, linux-arm64 1.37 MB
-(six lite tarballs total about 8.8 MB compressed). The 1.9.2 all-platform npm
-tarball is 6.8 MB compressed / 16.1 MB unpacked, so the six lite tarballs are
-not the same bytes as one all-platform tarball.
+(six lite tarballs total about 8.8 MB compressed). The 1.9.3 all-platform npm
+tarball is 6.76 MB compressed / 16.09 MB unpacked (51 entries), so the six lite
+tarballs are not the same bytes as one all-platform tarball.
 
 **Not done yet (needs a decision):** splitting the npm package itself into a
 meta-package plus six `@twinsearth/ai-prison-cli-<platform>` optional

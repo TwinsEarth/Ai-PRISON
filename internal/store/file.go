@@ -337,15 +337,23 @@ func isLastSegment(path string, files []string) bool {
 	return len(files) > 0 && files[len(files)-1] == path
 }
 
+// segmentForSeq names the segment that actually contains seq: the last
+// segment whose start is <= seq. Returning the first such match would blame
+// an earlier segment for a fault that happened in a later one.
 func segmentForSeq(seq uint64, files []string) string {
+	best := ""
 	for _, p := range files {
 		start, ok := segmentStart(p)
 		if !ok {
 			continue
 		}
-		if start <= seq {
-			return p
+		if start > seq {
+			break // files are sorted: every later segment starts even later
 		}
+		best = p
+	}
+	if best != "" {
+		return best
 	}
 	if len(files) > 0 {
 		return files[len(files)-1]
@@ -413,8 +421,13 @@ func segmentStart(name string) (uint64, bool) {
 
 // RepairTornTail removes an incomplete final line from the last segment file
 // in dir, after fsyncing both the file and directory. It is the ONLY integrity
-// repair permitted: it cannot resurrect a complete, tampered record. It
-// returns the number of bytes removed and the repaired file.
+// repair permitted: it cannot resurrect a complete, tampered record.
+//
+// The repaired file always keeps the '\n' that terminates its last complete
+// record, so the ledger stays appendable. The rewrite is published through a
+// temp file plus atomic rename: a crash during repair can never leave a
+// half-truncated segment behind. It returns the exact number of bytes removed
+// and the repaired file.
 func RepairTornTail(dir string) (int, string, error) {
 	files, err := listSegments(dir)
 	if err != nil {
@@ -444,7 +457,10 @@ func RepairTornTail(dir string) (int, string, error) {
 		}
 		return len(data), last, nil
 	}
-	head := data[:idx]
+	// Keep the newline that terminates the last complete record: the segment
+	// must stay a well-formed line-delimited file so the next append can be
+	// chained onto it. Only the torn bytes after that newline are removed.
+	head := data[:idx+1]
 	tail := data[idx+1:]
 	if len(tail) == 0 {
 		return 0, "", nil // clean trailing newline, nothing to repair
@@ -454,25 +470,50 @@ func RepairTornTail(dir string) (int, string, error) {
 	if err := json.Unmarshal(tail, &rec); err == nil {
 		return 0, "", nil // last line is a complete record; not a torn tail
 	}
-	f, err := os.OpenFile(last, os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return 0, "", err
-	}
-	if _, err := f.Write(head); err != nil {
-		_ = f.Close()
-		return 0, "", err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return 0, "", err
-	}
-	if err := f.Close(); err != nil {
+	if err := replaceFileAtomic(last, head, 0o600); err != nil {
 		return 0, "", err
 	}
 	if err := fsyncDir(dir); err != nil {
 		return 0, "", err
 	}
 	return len(tail), last, nil
+}
+
+// replaceFileAtomic publishes content over target without ever exposing a
+// partially written file: content is written to a temp file in the same
+// directory, fsynced, then renamed over target. A crash at any point leaves
+// either the old bytes or the new ones, never a truncated segment.
+func replaceFileAtomic(target string, content []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(target), tempPattern)
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		if tmpName != "" {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(content); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, target); err != nil {
+		return err
+	}
+	tmpName = "" // renamed successfully; nothing left to clean up
+	return nil
 }
 
 // fsyncDir flushes the directory entry (needed for rename durability).
