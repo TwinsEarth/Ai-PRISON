@@ -13,6 +13,9 @@ import { readJournalRecords } from './watchdog-core.js'
  * The module only talks to the plugin manager through `refs.manager`; it never
  * writes plugin files.
  */
+/** A single >=3000 MB plugin may not close the whole third-party set in one pass. */
+export const MAX_THIRD_PARTY_CLOSURES = 5
+
 export function createEnforcement({ watchdogState, refs, dataDir, journalDir, exemptions, appendIncident, persist }) {
   const inflight = new Map()
   const operationWindows = []
@@ -226,7 +229,8 @@ export function createEnforcement({ watchdogState, refs, dataDir, journalDir, ex
       return null
     }
     const enabled = rows.filter((row) => row.enabled && !exemptions.has(row.name))
-    const summary = { checked: enabled.length, warned: [], throttled: [], closed: [], uninstalled: [], thirdParty: [] }
+    const summary = { checked: enabled.length, warned: [], throttled: [], closed: [], uninstalled: [], thirdParty: [], thirdPartyPending: [] }
+    watchdogState.thirdPartyPending = []
     for (const row of enabled) {
       const mb = measuredMemoryMB(row.name)
       const tier = memoryTierFor(mb)
@@ -289,18 +293,25 @@ export function createEnforcement({ watchdogState, refs, dataDir, journalDir, ex
       summary.closed.push(row.name)
       appendIncident({ kind: 'plugin-memory', level: tier, target: row.name, mb, detail: '插件内存 ' + mb + ' MB ≥ ' + (tier === 'all-third-party' ? 3000 : 1000) + ' MB：强制关闭' })
       if (tier === 'all-third-party') {
-        for (const other of enabled) {
-          if (other.name === row.name || other.official === true || String(other.name).startsWith('@deepseek-ai/')) continue
-          if (watchdogState.quarantine.has(other.name)) continue
+        const others = enabled
+          .filter((other) => other.name !== row.name && other.official !== true && !String(other.name).startsWith('@deepseek-ai/'))
+          .filter((other) => !watchdogState.quarantine.has(other.name))
+          .map((other) => ({ name: other.name, mb: measuredMemoryMB(other.name) }))
+          .sort((a, b) => b.mb - a.mb)
+        const selected = others.slice(0, Math.max(0, MAX_THIRD_PARTY_CLOSURES - summary.thirdParty.length))
+        const pending = others.slice(Math.max(0, MAX_THIRD_PARTY_CLOSURES - summary.thirdParty.length))
+        for (const other of selected) {
           watchdogState.quarantine.set(other.name, { reason: 'memory', level: 'L2', at: new Date().toISOString(), release: 'manual', evidence: '同批第三方关闭（' + row.name + ' ≥3000 MB）', remediation: remediationFor('memory') })
           await disableTarget(other.name, 'memory-all-third-party')
           summary.thirdParty.push(other.name)
         }
-        appendIncident({ kind: 'plugin-memory', level: 'all-third-party', target: row.name, mb, detail: '单个插件 ≥3000 MB：强制关闭 ' + summary.thirdParty.length + ' 个第三方插件（官方/内置除外）' })
+        watchdogState.thirdPartyPending = [...(watchdogState.thirdPartyPending || []), ...pending.map((other) => ({ name: other.name, mb: other.mb, reason: 'all-third-party-cap' }))]
+        summary.thirdPartyPending = watchdogState.thirdPartyPending.map((other) => other.name)
+        appendIncident({ kind: 'plugin-memory', level: 'all-third-party', target: row.name, mb, detail: '单个插件 ≥3000 MB：本轮关闭 ' + summary.thirdParty.length + ' 个第三方插件（上限 ' + MAX_THIRD_PARTY_CLOSURES + '）；待人工处理 ' + summary.thirdPartyPending.length + ' 个' })
       }
       writePendingBoot({ level: 'L1', reason: 'memory', disable: [row.name, ...summary.thirdParty], keep: [] })
     }
-    if (summary.closed.length || summary.uninstalled.length || summary.thirdParty.length) persist(true)
+    if (summary.closed.length || summary.uninstalled.length || summary.thirdParty.length || summary.thirdPartyPending.length) persist(true)
     return summary
   }
 
@@ -309,7 +320,17 @@ export function createEnforcement({ watchdogState, refs, dataDir, journalDir, ex
     if (!result || !Array.isArray(result.diffs) || result.diffs.length === 0) return
     const files = result.diffs.map((diff) => diff.file)
     const policy = (watchdogState.tamper && watchdogState.tamper.policy) || 'observe'
-    appendIncident({ kind: 'tamper', files, policy, restored: result.restored, detail: '配置漂移：' + files.join(', ') + (policy === 'observe' ? '（observe：仅记录，不恢复不关闭）' : '') })
+    appendIncident({
+      kind: 'tamper',
+      files,
+      policy,
+      restored: result.restored,
+      notify: policy === 'alert',
+      detail:
+        '配置漂移：' + files.join(', ')
+        + (policy === 'observe' ? '（observe：仅记录，不恢复不关闭）' : '')
+        + (policy === 'alert' ? '（alert：发出告警事件，不自动恢复；是否隔离由人工决定）' : ''),
+    })
     let target = null
     let evidence = []
     try {

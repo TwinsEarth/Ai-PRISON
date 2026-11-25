@@ -76,6 +76,11 @@ export function watchdogSnapshot() {
       ? { at: lastPlan.at, level: lastPlan.level, target: lastPlan.target || null, inFlight: Boolean(lastPlan.inFlight), applied: Boolean(lastPlan.applied), fallback: lastPlan.fallback || null, targets: lastPlan.targets || [] }
       : null,
   }
+  const ranked = mergedTop(s, 10)
+  const topFive = ranked.slice(0, 5).map((row) => {
+    const tier = s.memoryTiers instanceof Map ? s.memoryTiers.get(row.target) : undefined
+    return { ...row, memoryTier: tier ? tier.tier : 'ok', memoryMB: tier ? tier.mb : null }
+  })
   return {
     ok: Boolean(s.startedAt),
     crashPlan,
@@ -93,11 +98,8 @@ export function watchdogSnapshot() {
     graceUntil: s.graceUntil,
     frozenAt: s.frozenAt,
     samples: s.samples.slice(-30),
-    operations: mergedTop(s, 10),
-    topFive: mergedTop(s, 5).map((row) => {
-      const tier = s.memoryTiers instanceof Map ? s.memoryTiers.get(row.target) : undefined
-      return { ...row, memoryTier: tier ? tier.tier : 'ok', memoryMB: tier ? tier.mb : null }
-    }),
+    operations: ranked,
+    topFive,
     probeProgress: s.probeProgress || null,
     quarantine,
     memoryTiers: s.memoryTiers instanceof Map ? [...s.memoryTiers].map(([target, entry]) => ({ target, ...entry })) : [],
@@ -111,6 +113,7 @@ export function watchdogSnapshot() {
     boot: s.boot || null,
     heap6g: s.heap6g === true,
     heap6gRequest: s.dataDir && fs.existsSync(path.join(s.dataDir, 'heap6g-request.json')) ? path.join(s.dataDir, 'heap6g-request.json') : null,
+    thirdPartyPending: s.thirdPartyPending || [],
     rss: s.rss || {},
     rssAt: s.rssAt || null,
     rssError: s.rssError || null,

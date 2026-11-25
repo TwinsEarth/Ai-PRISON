@@ -63,6 +63,9 @@ export function createWatchdog(ctx, config = {}, logger = {}) {
   // ---- persistence, enforcement, crash, budget ---------------------------
   const persistence = createPersistence({ watchdogState, stateFile, incidentsFile })
   persistence.restoreState()
+  // The request file is the durable source of truth: state.json may be stale
+  // if the user canceled after the last flush.
+  watchdogState.heap6g = fs.existsSync(path.join(dataDir, 'heap6g-request.json'))
 
   const enforcement = createEnforcement({
     watchdogState,

@@ -145,3 +145,22 @@ test('3000 MB closes every third-party plugin but leaves official/installation p
     fs.rmSync(path.dirname(watchdogState.dataDir), { recursive: true, force: true })
   }
 })
+
+test('3000 MB closes at most five third-party plugins and marks the rest pending', async () => {
+  const rows = [{ name: '@x/huge', version: '1.0.0', enabled: true, official: false }]
+  for (let i = 0; i < 9; i += 1) rows.push({ name: `@x/other-${i}`, version: '1.0.0', enabled: true, official: false })
+  const { watchdog, manager } = makeWatchdog(rows)
+  await tick()
+  try {
+    watchdogState.budgets = { '@x/huge': { moduleLoadMB: 3100, version: '1.0.0' } }
+    await watchdog.checkMemoryTiers()
+    const closed = manager.calls.filter((call) => call.enabled === false).map((call) => call.target)
+    assert.equal(closed.length, 6, 'one huge target plus the five-close cap')
+    const snapshot = watchdog.snapshot()
+    assert.equal(snapshot.thirdPartyPending.length, 4)
+    assert.ok(snapshot.incidents.some((incident) => incident.level === 'all-third-party' && /上限 5/.test(incident.detail)))
+  } finally {
+    watchdog.dispose()
+    fs.rmSync(path.dirname(watchdogState.dataDir), { recursive: true, force: true })
+  }
+})

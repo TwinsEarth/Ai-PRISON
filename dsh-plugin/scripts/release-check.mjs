@@ -158,7 +158,7 @@ check('artwork stays inside the documented limits and rules', () => {
   if (!/width="640" height="300"/.test(preview.split('>')[0] + '>')) throw new Error('preview is not 640x300')
 })
 
-check('locale metadata points at one-image detail documents', () => {
+check('locale metadata points at previewed detail documents with a real body', () => {
   for (const [locale, file] of [['en', 'locale/en.json'], ['zh', 'locale/zh.json']]) {
     const meta = readJson(file).meta
     if (!meta || !meta.title || !meta.description) throw new Error(`${locale} meta incomplete`)
@@ -166,7 +166,8 @@ check('locale metadata points at one-image detail documents', () => {
     const doc = path.join(pluginRoot, meta.detail)
     if (!fs.existsSync(doc)) throw new Error(`${locale} detail document missing`)
     const lines = fs.readFileSync(doc, 'utf8').trim().split(/\r?\n/)
-    if (lines.length !== 1 || !/^!\[[^\]]+\]\([^)]+\)$/.test(lines[0])) throw new Error(`${locale} detail document is not exactly one image line`)
+    if (!/^!\[[^\]]+\]\([^)]+\)$/.test(lines[0])) throw new Error(`${locale} detail document does not start with a preview image`)
+    if (lines.length < 8) throw new Error(`${locale} detail document has no substantive body`)
   }
 })
 

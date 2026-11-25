@@ -160,3 +160,35 @@ test('the status tool mapping exposes the crash plan', () => {
   const source = fs.readFileSync(path.join(pluginRoot, 'lib', 'tools.js'), 'utf8')
   assert.match(source, /crashPlan:\s*snapshot\.crashPlan/)
 })
+
+test('crash enforcement waits for a late pluginManager instead of giving up after 500ms', async () => {
+  resetWatchdogState()
+  const dirs = makeDirs()
+  writeCrash(dirs, 'crash-2026-01-01T00-00-01-000Z-host.log', { runId: 'run-late', at: '2026-01-01T00:00:01.000Z' })
+  writeJournal(dirs, [
+    { runId: 'run-late', operation: { id: 'op-late', time: '2026-01-01T00:00:01.500Z', reason: 'bundle', target: '@x/late', stage: 'enable', enabled: true, version: '1.0.0', phase: 'started' } },
+  ])
+  const calls = []
+  const manager = makeManager([{ name: '@x/late', version: '1.0.0', enabled: true }], calls)
+  const callbacks = {}
+  const ctx = {
+    effect: (fn) => { const disposer = fn(); return typeof disposer === 'function' ? disposer : () => {} },
+    on: () => () => {},
+    inject: (deps, callback) => { callbacks[deps[0]] = callback },
+  }
+  const watchdog = createWatchdog(ctx, { dataDir: dirs.state, logsDir: dirs.logs, journalDir: dirs.journal, sampleMs: 60_000 }, { info() {}, warn() {} })
+  try {
+    await sleep(600)
+    assert.equal(calls.length, 0, 'no manager yet: plan must not be marked applied')
+    callbacks.pluginManager({ pluginManager: manager, effect: (fn) => fn() })
+    await sleep(3500)
+    const plan = watchdog.snapshot().plans.at(-1)
+    assert.equal(plan.target, '@x/late')
+    assert.equal(plan.applied, true)
+    assert.ok(calls.some((call) => call.target === '@x/late' && call.enabled === false))
+    assert.notEqual(watchdog.snapshot().degraded, 'crash enforcement deferred: pluginManager unavailable after 30s')
+  } finally {
+    watchdog.dispose()
+    fs.rmSync(dirs.dir, { recursive: true, force: true })
+  }
+})

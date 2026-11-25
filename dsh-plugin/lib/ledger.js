@@ -28,8 +28,9 @@ export function listSegments(dataDir) {
 }
 
 /**
- * Delete only the CLI's own segment files from a ledger directory. Nothing else
- * is touched: no recursion, no directories, no files that the CLI did not name.
+ * Move only the CLI's own segment files out of the active ledger into
+ * `<dataDir>/.trash/<timestamp>/`. Nothing else is touched: no recursion, no
+ * directories, no files that the CLI did not name. The move is reversible.
  */
 export function resetLedger(dataDir) {
   if (!dataDir) return { ok: false, removed: [], error: 'no ledger directory' }
@@ -38,11 +39,21 @@ export function resetLedger(dataDir) {
     return { ok: false, removed: [], error: 'refusing to clear a filesystem root' }
   }
   const segments = listSegments(resolved)
+  if (segments.length === 0) {
+    return { ok: true, removed: [], failed: [], trashDir: null }
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const trashDir = path.join(resolved, '.trash', stamp)
+  try {
+    fs.mkdirSync(trashDir, { recursive: true })
+  } catch (error) {
+    return { ok: false, removed: [], error: String((error && error.message) || error), trashDir }
+  }
   const removed = []
   const failed = []
   for (const segment of segments) {
     try {
-      fs.rmSync(path.join(resolved, segment.name), { force: true })
+      fs.renameSync(path.join(resolved, segment.name), path.join(trashDir, segment.name))
       removed.push(segment.name)
     } catch (error) {
       failed.push(`${segment.name}: ${String((error && error.message) || error)}`)
@@ -52,6 +63,7 @@ export function resetLedger(dataDir) {
     ok: failed.length === 0,
     removed,
     failed,
+    trashDir,
     error: failed.length > 0 ? failed.join('; ') : undefined,
   }
 }

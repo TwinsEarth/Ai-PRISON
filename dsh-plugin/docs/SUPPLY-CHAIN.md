@@ -86,7 +86,7 @@ node dsh-plugin/scripts/pack-platform.mjs --platform windows --arch amd64
 
 | Channel | Artifact | Size |
 |---|---|---|
-| npm | one tarball with all six `bin/<platform>-<arch>/` trees | ~7.1 MB tgz (~8.8 MB unpacked) |
+| npm | one tarball with all six `bin/<platform>-<arch>/` trees | 6.8 MB tgz (16.1 MB unpacked; each binary 2.6–2.8 MB) |
 | GitHub Release | the same all-platform tarball **plus six lite tarballs** `<name>-<version>-<platform>-<arch>.tgz` | ~1.4–1.6 MB each |
 | GitHub Release | `SHA256SUMS` covering the full tarball **and** the six lite ones | — |
 | GitHub Release | artifact attestation over all tarballs + `SHA256SUMS` | — |
@@ -102,7 +102,9 @@ npm install ./twinsearth-ai-prison-dsh-plugin-<version>-windows-amd64.tgz
 
 Measured with 1.7.2: windows-amd64 1.56 MB, windows-arm64 1.40 MB,
 macos-amd64 1.52 MB, macos-arm64 1.41 MB, linux-amd64 1.50 MB, linux-arm64 1.37 MB
-(six together 8.8 MB, i.e. the same bytes as one all-platform tarball).
+(six lite tarballs total about 8.8 MB compressed). The 1.9.2 all-platform npm
+tarball is 6.8 MB compressed / 16.1 MB unpacked, so the six lite tarballs are
+not the same bytes as one all-platform tarball.
 
 **Not done yet (needs a decision):** splitting the npm package itself into a
 meta-package plus six `@twinsearth/ai-prison-cli-<platform>` optional

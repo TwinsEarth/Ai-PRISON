@@ -135,7 +135,7 @@ export function registerApi({ ctx, config = {}, logger } = {}) {
           }
           const action = String(body?.action ?? '')
           if (!ACTIONS.has(action)) {
-            return jsonResponse({ ok: false, error: 'action must be one of demo, drill, reset, reset-demo' }, 400)
+            return jsonResponse({ ok: false, error: `action must be one of ${Array.from(ACTIONS).join(', ')}` }, 400)
           }
           const sinceLastRun = Date.now() - lastRunAt
           if (sinceLastRun < RUN_MIN_INTERVAL_MS) {
@@ -151,27 +151,31 @@ export function registerApi({ ctx, config = {}, logger } = {}) {
           }
           const dataDir = allowed.dir
 
+          if (!resolved.path) {
+            return jsonResponse({ ok: false, error: resolved.missing, reason: 'cli-missing' }, 409)
+          }
+
           let removed = []
+          let trashDir = null
           if (action === 'reset' || action === 'reset-demo' || action === 'reset-drill') {
             const reset = resetLedger(dataDir)
             if (!reset.ok) {
               return jsonResponse({ ok: false, action, dataDir, error: reset.error || 'reset failed' }, 500)
             }
             removed = reset.removed
+            trashDir = reset.trashDir
             if (action === 'reset') {
               return jsonResponse({
                 ok: true,
                 action,
                 dataDir,
                 removed,
-                summary: `已清空 ${removed.length} 个账本段`,
+                trashDir,
+                summary: `已将 ${removed.length} 个账本段移入 .trash`,
               })
             }
           }
 
-          if (!resolved.path) {
-            return jsonResponse({ ok: false, error: resolved.missing, reason: 'cli-missing' }, 409)
-          }
           const timeoutMs = Number(config.timeoutMs) > 0 ? Number(config.timeoutMs) : 120_000
           const runAction = action.startsWith('reset-') ? action.slice('reset-'.length) : action
           if (runAction === 'demo' && listSegments(dataDir).length > 0) {

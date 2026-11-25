@@ -34,14 +34,44 @@ export function resolveProfileDir() {
   return path.join(os.homedir(), '.dsh', 'profiles', name)
 }
 
+/** DSH desktop data root, matching Electron's per-platform userData default. */
+export function resolveDshDataDir() {
+  if (process.platform === 'win32') {
+    const roaming = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
+    return path.join(roaming, '@deepseek-ai', 'dsh-desktop')
+  }
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support', '@deepseek-ai', 'dsh-desktop')
+  }
+  const xdg = typeof process.env.XDG_DATA_HOME === 'string' && process.env.XDG_DATA_HOME.trim()
+  const dataHome = xdg || path.join(os.homedir(), '.local', 'share')
+  return path.join(dataHome, '@deepseek-ai', 'dsh-desktop')
+}
+
+/** Electron's app.getPath('logs') uses the display app name, not the npm scope. */
+export function resolveDshLogsRoot() {
+  if (process.platform === 'win32') {
+    const roaming = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
+    return path.join(roaming, 'DeepSeek Harness', 'logs')
+  }
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Logs', 'DeepSeek Harness')
+  }
+  const xdg = typeof process.env.XDG_CONFIG_HOME === 'string' && process.env.XDG_CONFIG_HOME.trim()
+  const configHome = xdg || path.join(os.homedir(), '.config')
+  return path.join(configHome, 'DeepSeek Harness', 'logs')
+}
+
 export function resolveLogsDir() {
-  const roaming = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
-  return path.join(roaming, '@deepseek-ai', 'dsh-desktop', 'logs')
+  const override = typeof process.env.DSH_LOG_DIR === 'string' && process.env.DSH_LOG_DIR.trim()
+  if (override) return override
+  return resolveDshLogsRoot()
 }
 
 export function resolveJournalDir() {
-  const roaming = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
-  return path.join(roaming, '@deepseek-ai', 'dsh-desktop', 'plugin-operations')
+  const override = typeof process.env.DSH_JOURNAL_DIR === 'string' && process.env.DSH_JOURNAL_DIR.trim()
+  if (override) return override
+  return path.join(resolveDshDataDir(), 'plugin-operations')
 }
 
 /** Read the first bytes of a file without loading the whole crash log. */

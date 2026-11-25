@@ -28,13 +28,17 @@ test('listSegments returns only the CLI segment files, in order', () => {
   }
 })
 
-test('resetLedger removes only seg-*.log and keeps unrelated files', () => {
+test('resetLedger moves only seg-*.log into .trash and keeps unrelated files', () => {
   const dir = makeLedger()
   try {
     const result = resetLedger(dir)
     assert.equal(result.ok, true)
     assert.deepEqual(result.removed, ['seg-0000000000.log', 'seg-0000000080.log'])
-    assert.deepEqual(fs.readdirSync(dir), ['notes.txt'])
+    assert.deepEqual(fs.readdirSync(dir).sort(), ['.trash', 'notes.txt'])
+    assert.ok(result.trashDir)
+    const stash = fs.readdirSync(result.trashDir).sort()
+    assert.deepEqual(stash, ['seg-0000000000.log', 'seg-0000000080.log'])
+    assert.equal(fs.readFileSync(path.join(result.trashDir, 'seg-0000000000.log'), 'utf8'), 'a'.repeat(64))
     assert.deepEqual(listSegments(dir), [])
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })

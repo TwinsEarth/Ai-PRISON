@@ -48,8 +48,10 @@ or a second `drill`, would otherwise fail).
 
 A second loader row (`ai-prison-watchdog`) samples the host heap every 5 seconds,
 derives the design thresholds from the real heap limit (300/500 MB per plugin;
-3.0/3.9/5.0 GB and operation gates 4/5 GB on a 6 GB host, mapped down to
-2.99/3.60/3.81 and 2.73/3.41 GB on a 4 GB host), accounts plugin operations
+nominal 3.0/3.9/5.0 GB and operation gates 4/5 GB on a 6 GB host, first-trigger
+effective 2.7/3.6/4.7 GB after the 0.3 GB freeze margin; 4 GB hosts map to
+nominal 2.92/3.52/3.72 GB, effective 2.62/3.22/3.42 GB, with operation gates
+2.73/3.41 GB), accounts plugin operations
 (install/remove = 1, enable = 1, disable = 0.5), estimates each plugin's heap
 delta around those operations, reads new `crash-*-host.log` files at startup and
 records a 500 ms startup curve into `.ai-prison-watchdog/run-*.jsonl`.
@@ -109,9 +111,9 @@ library, `CGO_ENABLED=0`, no module downloads) and are not committed to git.
 
 ### Per-platform packaging (size)
 
-The published npm tarball carries all six CLIs (about 8.8 MB packed). For a
-single-machine deployment, build a platform-lite tarball that keeps only one
-`bin/<platform>-<arch>/` tree:
+The published npm tarball carries all six CLIs (6.8 MB packed, 16.1 MB unpacked;
+each binary 2.6–2.8 MB). For a single-machine deployment, build a platform-lite
+tarball that keeps only one `bin/<platform>-<arch>/` tree:
 
 ```bash
 cd dsh-plugin

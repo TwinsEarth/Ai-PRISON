@@ -74,14 +74,18 @@ export function createCrash({ watchdogState, logsDir, journalDir, refs, exemptio
   }
 
   async function enforceWhenReady(plan) {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
+    const startedAt = Date.now()
+    const deadline = startedAt + 30_000
+    let delay = 25
+    while (Date.now() < deadline) {
       if (refs.manager && typeof refs.manager.listBundles === 'function') {
         await enforceCrashPlan(plan)
         return
       }
-      await new Promise((resolve) => setTimeout(resolve, 25))
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      delay = Math.min(delay * 2, 2_000)
     }
-    watchdogState.degraded = 'crash enforcement deferred: pluginManager unavailable'
+    watchdogState.degraded = 'crash enforcement deferred: pluginManager unavailable after 30s'
   }
 
   async function enforceCrashPlan(plan) {

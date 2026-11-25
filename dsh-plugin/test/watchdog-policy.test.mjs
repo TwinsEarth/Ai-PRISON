@@ -188,3 +188,21 @@ test('formatBytes switches units', () => {
   assert.equal(formatBytes(6 * GB), '6.00 GB')
   assert.equal(formatBytes(-1), '—')
 })
+
+test('thresholds expose nominal, effective and display from one constant source', () => {
+  const t = thresholdsFor(six)
+  assert.equal(t.nominal.totalWarn, t.totalWarn)
+  assert.equal(t.nominal.totalPause, t.totalPause)
+  assert.equal(t.nominal.totalBlock, t.totalBlock)
+  assert.equal(t.effective.totalWarn, t.totalWarn - FREEZE_MARGIN)
+  assert.equal(t.display, t.effective)
+  assert.deepEqual(
+    [t.display.totalWarn, t.display.totalPause, t.display.totalBlock].map((value) => Math.round((value / GB) * 10) / 10),
+    [2.7, 3.6, 4.7],
+  )
+  const fourT = thresholdsFor(four)
+  assert.deepEqual(
+    [fourT.display.totalWarn, fourT.display.totalPause, fourT.display.totalBlock].map((value) => Math.round((value / GB) * 100) / 100),
+    [2.62, 3.22, 3.42],
+  )
+})

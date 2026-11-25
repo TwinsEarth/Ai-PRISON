@@ -59,3 +59,30 @@ test('an oversized incidents file is rotated to the last 2000 lines atomically',
     fs.rmSync(store.dir, { recursive: true, force: true })
   }
 })
+
+test('quarantine remediation and heap6g survive a restart', () => {
+  resetWatchdogState()
+  const store = makeStore()
+  try {
+    watchdogState.startedAt = new Date().toISOString()
+    watchdogState.quarantine.set('@a/b', {
+      reason: 'budget',
+      level: 'L1',
+      release: 'manual',
+      evidence: '620 MB',
+      remediation: { title: '预算隔离', why: 'why', impact: 'impact', steps: ['a', 'b'], release: 'release' },
+    })
+    watchdogState.heap6g = true
+    const persistence = createPersistence({ watchdogState, stateFile: store.stateFile, incidentsFile: store.incidentsFile })
+    persistence.persist(true)
+
+    resetWatchdogState()
+    const restored = createPersistence({ watchdogState, stateFile: store.stateFile, incidentsFile: store.incidentsFile })
+    restored.restoreState()
+    assert.equal(watchdogState.heap6g, true)
+    assert.equal(watchdogState.quarantine.get('@a/b').remediation.title, '预算隔离')
+    assert.deepEqual(watchdogState.quarantine.get('@a/b').remediation.steps, ['a', 'b'])
+  } finally {
+    fs.rmSync(store.dir, { recursive: true, force: true })
+  }
+})

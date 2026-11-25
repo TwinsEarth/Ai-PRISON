@@ -4,8 +4,8 @@ GO ?= go
 GOFLAGS ?= -mod=mod
 
 # Release metadata, injectable at link time.
-VERSION    ?= 1.0.0
-COMMIT     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+VERSION    ?= $(shell awk -F'"' '/^[[:space:]]*version[[:space:]]*=/{print $$2; exit}' cmd/aiprison/main.go)
+COMMIT     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo $${AIPRISON_COMMIT:-unknown})
 BUILD_TIME ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Native binary by default; cross-compile with e.g. `GOOS=windows make build`.

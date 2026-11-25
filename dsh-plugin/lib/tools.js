@@ -1,9 +1,9 @@
-import path from 'node:path'
-import { resolveCli, resolveDataDir, runCli } from './cli.js'
+import { resolveCli, runCli } from './cli.js'
 import { loadDefineTool } from './harness.js'
 import { buildStatus, statusSummary } from './status.js'
 import { watchdogSnapshot } from './watchdog-runtime.js'
 import { formatBytes } from './watchdog-policy.js'
+import { resolveAllowedDataDir } from './api.js'
 
 const MAX_TEXT = 4_000
 const TAIL_LINES = 60
@@ -51,6 +51,27 @@ export function resolveToolCwd(ctx, exec) {
 
 const cwdOf = (ctx, exec) => resolveToolCwd(ctx, exec)
 
+/** Same whitelist as the HTTP routes: config dataDir or <cwd>/.ai-prison only. */
+function allowedDataDir({ ctx, config, exec, requested }) {
+  const cwd = cwdOf(ctx, exec)
+  const allowed = resolveAllowedDataDir({ requested: requested || undefined, config, cwd })
+  if (!allowed.ok) {
+    return {
+      ok: false,
+      cwd,
+      payload: {
+        ok: false,
+        reason: 'data-dir-not-allowed',
+        error: allowed.error,
+        dataDir: allowed.dir || null,
+        allowed: allowed.allowed,
+        hint: 'data_dir 只能是插件配置的账本目录，或当前工作目录下的 .ai-prison。',
+      },
+    }
+  }
+  return { ok: true, cwd, dataDir: allowed.dir }
+}
+
 function parametersOf(config) {
   const timeout = Number(config && config.timeoutMs) > 0 ? Number(config.timeoutMs) : 120_000
   return timeout
@@ -73,8 +94,10 @@ async function invoke({ ctx, config, exec, subcommand, args = [], dataDir: expli
       ok: false,
     }
   }
-  const cwd = cwdOf(ctx, exec)
-  const dataDir = explicitDataDir ? path.resolve(cwd, explicitDataDir) : resolveDataDir({ config, cwd })
+  const guard = allowedDataDir({ ctx, config, exec, requested: explicitDataDir })
+  if (!guard.ok) return { payload: guard.payload, ok: false }
+  const cwd = guard.cwd
+  const dataDir = guard.dataDir
   const result = await runCli(['--data-dir', dataDir, subcommand, ...args], {
     bin: resolved.path,
     cwd,
@@ -136,7 +159,11 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
   }
   const dataDirParameter = {
     type: 'string',
-    description: 'Durable ledger directory. Default: the plugin config, else <session working directory>/.ai-prison.',
+    description: 'Durable ledger directory. Default: the plugin config, else <session working directory>/.ai-prison. Must pass the same whitelist as the panel API.',
+  }
+  const confirmParameter = {
+    type: 'boolean',
+    description: 'Set true to confirm a ledger-writing or ledger-mutating tool. A missing/false value returns confirmation-required and changes nothing.',
   }
 
   ctx.inject(['tools'], (child) => {
@@ -153,12 +180,10 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
       name: 'ai_prison_levels',
       description:
         'Print the L0–L5 grading matrix of AI Prison: each level code, name, duration class and the capabilities it deprives. Read-only; no ledger is touched.',
-      parameters: {
-        data_dir: { ...dataDirParameter, description: 'Unused by this command; accepted for symmetry with the ledger tools.' },
-      },
+      parameters: {},
       output: stringOutput,
-      async execute(args, exec) {
-        const outcome = await invoke({ ctx, config, exec, subcommand: 'levels', dataDir: args?.data_dir })
+      async execute(_args, exec) {
+        const outcome = await invoke({ ctx, config, exec, subcommand: 'levels' })
         if (!outcome.ok) return toolResult(outcome.payload)
         return toolResult({ ok: true, command: 'levels', matrix: outcome.payload.stdout })
       },
@@ -173,13 +198,9 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
       },
       output: stringOutput,
       async execute(args, exec) {
-        const cwd = cwdOf(ctx, exec)
-        const dataDir = args?.data_dir ? path.resolve(cwd, args.data_dir) : undefined
-        if (dataDir) {
-          const status = await buildStatus({ config: { ...config, dataDir }, cwd, root: undefined })
-          return toolResult({ ok: true, summary: statusSummary(status), status })
-        }
-        const status = await buildStatus({ config, cwd })
+        const guard = allowedDataDir({ ctx, config, exec, requested: args?.data_dir })
+        if (!guard.ok) return toolResult(guard.payload)
+        const status = await buildStatus({ config: { ...config, dataDir: guard.dataDir }, cwd: guard.cwd, root: undefined })
         return toolResult({ ok: true, summary: statusSummary(status), status })
       },
     })
@@ -263,15 +284,21 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
         'Run the end-to-end governance demo (detect → seven-stage adjudication → layered enforcement → audit → appeal/rehabilitation → recovery) and persist its records into the ledger. Writes to the ledger directory; the demo is entirely in-memory simulation, not real isolation or capability removal.',
       parameters: {
         data_dir: dataDirParameter,
+        confirm: confirmParameter,
       },
       output: stringOutput,
       async execute(args, exec) {
+        const guard = allowedDataDir({ ctx, config, exec, requested: args?.data_dir })
+        if (!guard.ok) return toolResult(guard.payload)
+        if (args?.confirm !== true) {
+          return toolResult({ ok: false, reason: 'confirmation-required', hint: 'ai_prison_demo 会写入账本；请显式传 confirm: true。' })
+        }
         const outcome = await invoke({ ctx, config, exec, subcommand: 'demo', dataDir: args?.data_dir })
         if (!outcome.ok) {
           const text = `${outcome.payload.stdout || ''}\n${outcome.payload.stderr || ''}`
           if (/reopened ledger/i.test(text)) {
             outcome.payload.hint =
-              '账本非空：demo 只能从空账本开始（CLI 会重放旧账本并拒绝重新分配已吊销的凭据）。可改用 ai_prison_drill，或清空该数据目录下的 seg-*.log 后重试。'
+              '账本非空：demo 只能从空账本开始（CLI 会重放旧账本并拒绝重新分配已吊销的凭据）。可改用 ai_prison_drill，或把该数据目录下的 seg-*.log 移入 .trash 后重试。'
           }
         }
         return toolResult(outcome.payload)
@@ -284,15 +311,21 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
         'Run the v1.0.0 recovery drill: walk the reversibility matrix and report PASS/FAIL per assertion plus the overall verdict. Persists drill events into the ledger; all backends stay simulated.',
       parameters: {
         data_dir: dataDirParameter,
+        confirm: confirmParameter,
       },
       output: stringOutput,
       async execute(args, exec) {
+        const guard = allowedDataDir({ ctx, config, exec, requested: args?.data_dir })
+        if (!guard.ok) return toolResult(guard.payload)
+        if (args?.confirm !== true) {
+          return toolResult({ ok: false, reason: 'confirmation-required', hint: 'ai_prison_drill 会写入账本；请显式传 confirm: true。' })
+        }
         const outcome = await invoke({ ctx, config, exec, subcommand: 'drill', dataDir: args?.data_dir })
         if (!outcome.ok) {
           const text = `${outcome.payload.stdout || ''}\n${outcome.payload.stderr || ''}`
           if (/reopened ledger|seed allocate/i.test(text)) {
             outcome.payload.hint =
-              '账本已被此前的演练写入：再次演练会重放旧事件并拒绝重新分配已吊销的凭据。请清空该数据目录下的 seg-*.log（或换一个空 data_dir）后重试；面板的「运行演练」会自动先清空。'
+              '账本已被此前的演练写入：再次演练会重放旧事件并拒绝重新分配已吊销的凭据。请把该数据目录下的 seg-*.log 移入 .trash（或换一个空 data_dir）后重试；面板的「运行演练」会自动先移入 .trash。'
           }
         }
         return toolResult(outcome.payload)
@@ -333,9 +366,15 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
         'Remove only a genuine torn (incomplete) tail line from the ledger and refuse hard tampering. Mutating: it truncates the damaged tail so later appends stay replayable. Run ai_prison_verify first and inspect the reported reason.',
       parameters: {
         data_dir: dataDirParameter,
+        confirm: confirmParameter,
       },
       output: stringOutput,
       async execute(args, exec) {
+        const guard = allowedDataDir({ ctx, config, exec, requested: args?.data_dir })
+        if (!guard.ok) return toolResult(guard.payload)
+        if (args?.confirm !== true) {
+          return toolResult({ ok: false, reason: 'confirmation-required', hint: 'ai_prison_repair_tail 会截断账本尾部；请先 verify，再显式传 confirm: true。' })
+        }
         const outcome = await invoke({ ctx, config, exec, subcommand: 'repair-tail', dataDir: args?.data_dir })
         return toolResult(outcome.payload)
       },

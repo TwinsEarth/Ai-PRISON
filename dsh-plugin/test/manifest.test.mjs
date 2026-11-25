@@ -60,8 +60,8 @@ test('locale metadata matches the package name and ships detail documents', () =
     const doc = path.join(pluginRoot, meta.meta.detail)
     assert.ok(fs.existsSync(doc), `${locale} detail document missing`)
     const body = fs.readFileSync(doc, 'utf8').trim().split(/\r?\n/)
-    assert.equal(body.length, 1, `${locale} detail document holds exactly one image line`)
-    assert.match(body[0], /^!\[[^\]]+\]\([^)]+\)$/)
+    assert.ok(body.length >= 8, `${locale} detail document has a substantive body`)
+    assert.match(body[0], /^!\[[^\]]+\]\([^)]+\)$/, `${locale} detail document starts with a preview image`)
     const image = body[0].match(/\(([^)]+)\)/)[1]
     assert.ok(fs.existsSync(path.join(pluginRoot, path.dirname(meta.meta.detail), image)), `${locale} preview image missing`)
   }

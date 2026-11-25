@@ -2,6 +2,63 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.9.2] — 2026-11-25
+
+### Fixed — data safety and platform truth
+
+- `reset` now probes the resolved CLI before touching the ledger; a missing
+  `cliPath` returns 409 and leaves `seg-*.log` untouched. Ledger segments move
+  to `<data_dir>/.trash/<UTC>/` instead of being deleted.
+- macOS crash logs resolve to Electron's `~/Library/Logs/DeepSeek Harness`
+  (journal remains under `~/Library/Application Support/@deepseek-ai/dsh-desktop`);
+  Windows/Linux use their Electron `logs` roots. `DSH_LOG_DIR` and
+  `DSH_JOURNAL_DIR` override both.
+- Memory thresholds expose `nominal`, `effective` and `display`; MemoryCard
+  reads `watchdog.waterline` instead of recomputing 30/70/95 from heap bytes.
+  6 GB hosts now display 2.7/3.6/4.7 GB (4 GB: 2.62/3.22/3.42 GB).
+- Budget remediation no longer claims a pending-boot consumer that the shipped
+  package does not have; the panel shows `consumer:'none'` and the manual step.
+
+### Fixed — silent failures and asymmetric boundaries
+
+- Budget probing sets `probeRunning` before the first await, always clears it
+  through `try/finally`, and ignores stale generations after a restart.
+- Panel polls use an AbortController and skip while a request is in flight;
+  watchdog actions validate `response.ok && payload.ok` and surface the error.
+- Quarantine remediation and `heap6g` survive a restart; a
+  `heap6g-request.json` on disk wins over a stale state file.
+- Agent tools reuse the panel's `resolveAllowedDataDir`; `/etc` and arbitrary
+  directories return `data-dir-not-allowed`. `demo`, `drill` and `repair-tail`
+  require `confirm: true`. `ai_prison_levels` no longer advertises an unused
+  `data_dir`.
+- Crash enforcement retries with exponential backoff to 30 seconds, so a
+  plugin manager that arrives after 500 ms still gets the plan; degraded is
+  only reported on a real timeout.
+- Tamper policy `alert` now records a notification event distinct from
+  `observe`, instead of behaving identically.
+- `all-third-party` closes at most five third-party plugins per check and lists
+  the rest as `thirdPartyPending`; the panel shows the impact scope.
+- README thresholds and SUPPLY-CHAIN package sizes are asserted against the
+  code and the measured tarball.
+
+### Changed — cleanup and docs
+
+- Removed the dead boot-watch ternary, the contradictory PrisonCard empty
+  state, the double TopN computation, and the hand-written action list in the
+  400 error. `docs/DETAIL*.md` now carry a real body after the preview image.
+- Added regression tests for the missing-CLI reset, platform paths, threshold
+  display, budget recovery, late manager, alert/observe difference, persistence,
+  agent allow-list, confirmation, third-party cap and documentation constants.
+  v1.9.2 ships the rebuilt six-platform CLI binaries (CLI 1.0.9).
+
+### Fixed — build metadata drift
+
+- `Makefile` now derives `VERSION` from `cmd/aiprison/main.go` instead of
+  defaulting to `1.0.0`; `make smoke` can no longer silently rebuild a
+  mislabelled binary.
+- `scripts/build-binaries.mjs` imports `node:fs`, so the no-env local build can
+  resolve the declared CLI version instead of throwing "cannot determine".
+
 ## [1.8.0] — 2026-11-21
 
 ### Added — external memory supervisor

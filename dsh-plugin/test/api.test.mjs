@@ -172,3 +172,62 @@ test('POST /run is rate limited between two rapid executions', async () => {
     fs.rmSync(cwd, { recursive: true, force: true })
   }
 })
+
+test('POST reset-demo probes the CLI before moving any ledger segment', async () => {
+  const cwd = tempCwd()
+  const dataDir = path.join(cwd, '.ai-prison')
+  fs.mkdirSync(dataDir, { recursive: true })
+  const segment = path.join(dataDir, 'seg-0000000000.log')
+  fs.writeFileSync(segment, 'keep-me')
+  resetRunThrottle()
+  const routes = []
+  const ctx = {
+    get(key) {
+      if (key === 'sessions') return { list: () => [{ header: { cwd } }] }
+      return undefined
+    },
+    inject: (deps, callback) => {
+      if (!deps.includes('connection')) return
+      callback({ effect: (fn) => fn(), connection: { fetch: { register: (route) => { routes.push(route); return () => {} } } } })
+    },
+  }
+  try {
+    registerApi({ ctx, config: { cliPath: path.join(cwd, 'missing-aiprison') }, logger: { warn() {} } })
+    const runRoute = routes.find((route) => route.path === '/api/ai-prison/run')
+    const response = await runRoute.fetch(new Request('http://localhost/api/ai-prison/run', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'reset-demo' }),
+    }))
+    assert.equal(response.status, 409)
+    const payload = await response.json()
+    assert.equal(payload.reason, 'cli-missing')
+    assert.equal(fs.readFileSync(segment, 'utf8'), 'keep-me', 'segment must survive a missing CLI')
+    assert.equal(fs.existsSync(path.join(dataDir, '.trash')), false, 'no trash is created before the CLI check')
+  } finally {
+    resetRunThrottle()
+    fs.rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+test('the unknown-action error enumerates every accepted action', async () => {
+  const routes = []
+  const ctx = {
+    get: () => undefined,
+    inject: (deps, callback) => {
+      if (!deps.includes('connection')) return
+      callback({ effect: (fn) => fn(), connection: { fetch: { register: (route) => { routes.push(route); return () => {} } } } })
+    },
+  }
+  registerApi({ ctx, config: {}, logger: { warn() {} } })
+  const runRoute = routes.find((route) => route.path === '/api/ai-prison/run')
+  const response = await runRoute.fetch(new Request('http://localhost/api/ai-prison/run', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action: 'not-an-action' }),
+  }))
+  assert.equal(response.status, 400)
+  const payload = await response.json()
+  assert.match(payload.error, /reset-drill/)
+  assert.match(payload.error, /reset-demo/)
+})

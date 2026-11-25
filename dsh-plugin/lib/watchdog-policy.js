@@ -8,7 +8,7 @@
  *   opWarn      ~67% of the cap      -> strong warning once the user continued through pause
  *   opBlock     ~83% of the cap      -> agent-side plugin_manager guard refuses
  * On a 6 GB host that yields 3.0/3.9/5.0 GB and 4.0/5.0 GB operation gates; on a
- * 4 GB host the same ratios map down to 2.99/3.60/3.81 GB and 2.73/3.41 GB.
+ * 4 GB host the same ratios map down to 2.92/3.52/3.72 GB and 2.73/3.41 GB.
  */
 export const MB = 1024 * 1024
 export const GB = 1024 * MB
@@ -35,7 +35,7 @@ export const READONLY_ACTIONS = new Set(['list_plugins', 'list_bundles', 'list_v
 export function thresholdsFor(heapLimitBytes) {
   const limit = Number(heapLimitBytes) > 0 ? Number(heapLimitBytes) : 4 * GB
   const clamp = (absolute, ratio) => Math.min(absolute, ratio * limit)
-  return {
+  const nominal = {
     heapLimit: limit,
     singleWarn: clamp(300 * MB, 0.075),
     singleBlock: clamp(500 * MB, 0.125),
@@ -45,6 +45,17 @@ export function thresholdsFor(heapLimitBytes) {
     opWarn: clamp(4 * GB, 2 / 3),
     opBlock: clamp(5 * GB, 5 / 6),
   }
+  const shift = (value) => Math.max(0, value - FREEZE_MARGIN)
+  const effective = {
+    totalWarn: shift(nominal.totalWarn),
+    totalPause: shift(nominal.totalPause),
+    totalBlock: shift(nominal.totalBlock),
+    opWarn: shift(nominal.opWarn),
+    opBlock: shift(nominal.opBlock),
+  }
+  // The classifier applies FREEZE_MARGIN exactly once; the top-level values stay
+  // nominal for backwards compatibility, while the UI reads only `display`.
+  return { ...nominal, nominal, effective, display: effective }
 }
 
 /** Waterline for the whole host, with the active level to keep hysteresis. */

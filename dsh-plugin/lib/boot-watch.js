@@ -64,7 +64,7 @@ export function createBootWatch({ dataDir, processLike = process, watchdogState,
   }
 
   function thresholds() {
-    const limit = processLike.memoryUsage ? 4 * 1024 * 1024 * 1024 : 4 * 1024 * 1024 * 1024
+    const limit = 4 * 1024 * 1024 * 1024
     return bootThresholdsFor(watchdogState && watchdogState.thresholds ? watchdogState.thresholds.heapLimit : limit)
   }
 

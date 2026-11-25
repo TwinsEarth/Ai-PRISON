@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { getHeapStatistics } from 'node:v8'
 import { createWatchdog } from '../lib/watchdog-runtime.js'
 import { MB, thresholdsFor } from '../lib/watchdog-policy.js'
-import { resetWatchdogState } from '../lib/watchdog-state.js'
+import { resetWatchdogState, watchdogState } from '../lib/watchdog-state.js'
 
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -134,6 +134,50 @@ test('a failed probe is recorded with attempts and can be retried manually', asy
     budget = watchdog.snapshot().budgets['@x/broken']
     assert.equal(budget.attempts, 2)
     assert.equal(calls, 2)
+  } finally {
+    cleanup(watchdog, dir)
+  }
+})
+
+test('a thrown probe records the error and releases the running flag', async () => {
+  let calls = 0
+  const { watchdog, dir } = makeWatchdog({
+    rows: ['@x/throwing'],
+    probe: async () => {
+      calls += 1
+      throw new Error('boom')
+    },
+  })
+  try {
+    const first = await watchdog.probeNow({ force: true })
+    assert.equal(first.total, 1)
+    assert.equal(watchdogState.probeRunning, false)
+    assert.match(watchdog.snapshot().budgets['@x/throwing'].error, /boom/)
+    await watchdog.probeNow({ force: true })
+    assert.equal(calls, 2, 'a second round must still be able to start')
+  } finally {
+    cleanup(watchdog, dir)
+  }
+})
+
+test('two same-tick schedules start only one probe round', async () => {
+  let calls = 0
+  let release
+  const { watchdog, dir } = makeWatchdog({
+    rows: ['@x/slow'],
+    probe: async () => {
+      calls += 1
+      await new Promise((resolve) => { release = resolve })
+      return { ok: true, moduleLoadMB: 20, rssMB: 5, ms: 3 }
+    },
+  })
+  try {
+    const first = watchdog.probeNow({ force: true })
+    const second = watchdog.probeNow({ force: true })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(calls, 1, 'second caller must not start another probe')
+    release()
+    await Promise.all([first, second])
   } finally {
     cleanup(watchdog, dir)
   }

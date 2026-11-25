@@ -76,45 +76,71 @@ export function createBudget({ watchdogState, refs, profileDir, journalDir, exem
     return { ok: true }
   }
 
-  async function scheduleProbe({ force = false } = {}) {
-    if (watchdogState.probeRunning) return watchdogState.probeProgress
+  function scheduleProbe({ force = false } = {}) {
+    if (watchdogState.probeRunning) return Promise.resolve(watchdogState.probeProgress)
     const manager = refs.manager
-    if (!manager || typeof manager.listBundles !== 'function') return null
-    let rows
-    try {
-      rows = await manager.listBundles()
-    } catch {
-      return null
-    }
-    prunePluginState(watchdogState, rows)
-    const recent = new Set()
-    const cutoff = Date.now() - 30 * 60 * 1000
-    for (const record of readJournalRecords(journalDir)) {
-      const operation = record && record.operation
-      if (!operation || !operation.target) continue
-      if (operation.stage !== 'install' && operation.stage !== 'enable') continue
-      if (Date.parse(operation.time || 0) < cutoff) continue
-      recent.add(operation.target)
-    }
-    const candidates = rows
-      .filter((row) => row.enabled && !exemptions.has(row.name))
-      .map((row) => ({ name: row.name, version: row.version ? String(row.version) : '', state: budgetState(row.name, row.version ? String(row.version) : '') }))
-      .filter((candidate) => candidate.state !== 'ok')
-      .sort((a, b) => (recent.has(b.name) ? 1 : 0) - (recent.has(a.name) ? 1 : 0))
-      .slice(0, force ? Math.max(probeMax, Number(config.probeMaxForce) > 0 ? Number(config.probeMaxForce) : 15) : probeMax)
-    watchdogState.probeProgress = { done: 0, total: candidates.length, current: null, finishedAt: null }
-    if (candidates.length === 0) return watchdogState.probeProgress
+    if (!manager || typeof manager.listBundles !== 'function') return Promise.resolve(null)
+    // Claim the run synchronously, before the first await: two callers in the
+    // same tick must not both pass the flag check and start a probe.
     watchdogState.probeRunning = true
-    for (const candidate of candidates) {
-      if (watchdogState.waterline !== 'ok') break
-      const outcome = await probeOne(candidate.name, candidate.version)
-      watchdogState.probeProgress = { ...watchdogState.probeProgress, done: watchdogState.probeProgress.done + 1, current: candidate.name, lastOk: Boolean(outcome && outcome.ok) }
-      if (candidates.length > 1) await new Promise((resolve) => setTimeout(resolve, Number(config.probeGapMs) >= 0 ? Number(config.probeGapMs) : 1500))
-    }
-    watchdogState.probeProgress = { ...watchdogState.probeProgress, current: null, finishedAt: new Date().toISOString() }
-    watchdogState.probeRunning = false
-    persist(true)
-    return watchdogState.probeProgress
+    const token = (scheduleProbe.generation = (scheduleProbe.generation || 0) + 1)
+    return (async () => {
+      try {
+        let rows
+        try {
+          rows = await manager.listBundles()
+        } catch {
+          return null
+        }
+        prunePluginState(watchdogState, rows)
+        const recent = new Set()
+        const cutoff = Date.now() - 30 * 60 * 1000
+        for (const record of readJournalRecords(journalDir)) {
+          const operation = record && record.operation
+          if (!operation || !operation.target) continue
+          if (operation.stage !== 'install' && operation.stage !== 'enable') continue
+          if (Date.parse(operation.time || 0) < cutoff) continue
+          recent.add(operation.target)
+        }
+        const candidates = rows
+          .filter((row) => row.enabled && !exemptions.has(row.name))
+          .map((row) => ({ name: row.name, version: row.version ? String(row.version) : '', state: budgetState(row.name, row.version ? String(row.version) : '') }))
+          .filter((candidate) => candidate.state !== 'ok')
+          .sort((a, b) => (recent.has(b.name) ? 1 : 0) - (recent.has(a.name) ? 1 : 0))
+          .slice(0, force ? Math.max(probeMax, Number(config.probeMaxForce) > 0 ? Number(config.probeMaxForce) : 15) : probeMax)
+        watchdogState.probeProgress = { done: 0, total: candidates.length, current: null, finishedAt: null }
+        if (candidates.length === 0) {
+          watchdogState.probeProgress.finishedAt = new Date().toISOString()
+          return watchdogState.probeProgress
+        }
+        for (const candidate of candidates) {
+          if (token !== scheduleProbe.generation || watchdogState.waterline !== 'ok') break
+          let outcome
+          try {
+            outcome = await probeOne(candidate.name, candidate.version)
+          } catch (error) {
+            watchdogState.budgets[candidate.name] = {
+              error: String((error && error.message) || error).slice(0, 300),
+              measuredAt: new Date().toISOString(),
+              version: candidate.version || null,
+              attempts: 1,
+              source: 'module-load-probe',
+            }
+            persist(true)
+            outcome = { ok: false }
+          }
+          watchdogState.probeProgress = { ...watchdogState.probeProgress, done: watchdogState.probeProgress.done + 1, current: candidate.name, lastOk: Boolean(outcome && outcome.ok) }
+          if (candidates.length > 1) await new Promise((resolve) => setTimeout(resolve, Number(config.probeGapMs) >= 0 ? Number(config.probeGapMs) : 1500))
+        }
+        return watchdogState.probeProgress
+      } finally {
+        if (token === scheduleProbe.generation) {
+          watchdogState.probeRunning = false
+          watchdogState.probeProgress = { ...(watchdogState.probeProgress || { done: 0, total: 0 }), current: null, finishedAt: new Date().toISOString() }
+          persist(true)
+        }
+      }
+    })()
   }
 
   return { scheduleProbe }

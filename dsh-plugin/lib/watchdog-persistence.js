@@ -30,6 +30,8 @@ export function createPersistence({ watchdogState, stateFile, incidentsFile }) {
       rssStats: watchdogState.rssStats || null,
       rssServiceError: watchdogState.rssServiceError || null,
       rssAttempts: watchdogState.rssAttempts || 0,
+      heap6g: Boolean(watchdogState.heap6g),
+      thirdPartyPending: watchdogState.thirdPartyPending || [],
       migratedTamperQuarantine: tamperMigrationDone,
     }
     try {
@@ -60,6 +62,8 @@ export function createPersistence({ watchdogState, stateFile, incidentsFile }) {
       if (parsed.rssAt) watchdogState.rssAt = parsed.rssAt
       if (parsed.rssStats) watchdogState.rssStats = parsed.rssStats
       watchdogState.rssAttempts = Number(parsed.rssAttempts) || 0
+      watchdogState.heap6g = parsed.heap6g === true
+      if (Array.isArray(parsed.thirdPartyPending)) watchdogState.thirdPartyPending = parsed.thirdPartyPending.slice(0, 50)
       tamperMigrationDone = parsed.migratedTamperQuarantine === true
       if (Array.isArray(parsed.quarantine)) {
         let dropped = 0
@@ -69,12 +73,15 @@ export function createPersistence({ watchdogState, stateFile, incidentsFile }) {
             continue
           }
           if (entry && typeof entry.target === 'string') {
-            watchdogState.quarantine.set(entry.target, {
+            const { target, ...extra } = entry
+            watchdogState.quarantine.set(target, {
               reason: entry.reason || 'crash',
               level: entry.level || 'L1',
               at: entry.at || new Date().toISOString(),
               release: entry.release || 'manual',
               evidence: entry.evidence || '',
+              ...extra,
+              ...(entry.remediation && typeof entry.remediation === 'object' ? { remediation: entry.remediation } : {}),
             })
           }
         }

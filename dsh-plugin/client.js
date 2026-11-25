@@ -44,11 +44,11 @@ window.__ModuleLoader__.load({
         'action.loading': 'Reading…',
         'action.runDemo': 'Run demo',
         'action.runDrill': 'Run drill',
-        'action.confirmRun': 'Click again: clear {records} records and run',
+        'action.confirmRun': 'Click again: move {records} segments to .trash and run',
         'action.running': 'Running…',
         'ledger.actions': 'Explicit actions',
-        'ledger.actionsHint': 'These buttons run the bundled CLI. An existing ledger is cleared first, so every run starts from a consistent baseline.',
-        'ledger.resetHint': 'The ledger already exists: a run clears its segments first, then executes. Click twice to confirm.',
+        'ledger.actionsHint': 'These buttons run the bundled CLI. Existing segments are moved to .trash first, so every run starts from a consistent baseline.',
+        'ledger.resetHint': 'The ledger already exists: a run moves its segments to .trash first, then executes. Click twice to confirm.',
         'ledger.lastAction': 'Last action',
         'meta.updated': 'Updated {time}',
         'meta.readonly': 'Read-only view: the panel never writes by itself; only the buttons above do.',
@@ -56,12 +56,14 @@ window.__ModuleLoader__.load({
         'watchdog.mode': 'Observe mode: records only, never closes plugins',
         'watchdog.modeEnforce': 'Enforce mode: over-limit operations are rolled back, closed or quarantined',
         'watchdog.enforceTitle': 'Enforcement',
+        'watchdog.actionError': 'Panel action failed',
         'watchdog.enforceOn': 'enforce',
         'watchdog.observeOnly': 'observe only',
         'watchdog.freezeHint': 'Heap is frozen at {level}: plugin operations are blocked except release actions. Close the biggest plugins below or restart DSH.',
         'watchdog.confirmPause': 'I understand: allow plugin operations for 10 minutes',
         'watchdog.quarantine': 'Plugin prison',
         'watchdog.noQuarantine': 'No quarantined plugins.',
+        'watchdog.thirdPartyPending': 'Third-party plugins awaiting manual review (cap hit): {n}',
         'watchdog.release': 'Release',
         'watchdog.topFive': 'Top {n} by estimated heap',
         'watchdog.close': 'Arrest now',
@@ -74,6 +76,7 @@ window.__ModuleLoader__.load({
         'watchdog.heap6gOn': 'Cancel the 6 GB heap request',
         'watchdog.heap6gPending': 'Written to the watchdog state directory; an external launcher must consume it (none is installed right now).',
         'watchdog.pendingBoot': 'pending-boot plan ({level}) was written, but no external consumer is installed: only this run\'s in-process isolation applies. Handle the next start manually.',
+        'watchdog.pendingBootConsumer': 'consumer: {consumer}',
         'watchdog.disabled': 'Watchdog row not enabled; heap observation is unavailable.',
         'watchdog.heap': 'Heap used',
         'watchdog.limit': 'Heap limit',
@@ -86,6 +89,7 @@ window.__ModuleLoader__.load({
         'waterline.danger': 'Danger',
         'waterline.warn': 'Warning',
         'waterline.pause': 'Paused',
+        'waterline.frost': 'Frozen',
         'waterline.block': 'Blocked',
         'prison.title': 'Plugin prison',
         'prison.top': 'Top {n} plugins by estimated heap',
@@ -146,11 +150,11 @@ window.__ModuleLoader__.load({
         'action.loading': '读取中…',
         'action.runDemo': '运行 demo',
         'action.runDrill': '运行演练',
-        'action.confirmRun': '再次点击：清空 {records} 条记录并运行',
+        'action.confirmRun': '再次点击：将 {records} 条记录移入 .trash 并运行',
         'action.running': '运行中…',
         'ledger.actions': '显式操作',
-        'ledger.actionsHint': '这些按钮运行内置 CLI；账本已存在时会先清空，保证每次从一致基线开始。',
-        'ledger.resetHint': '账本已存在：运行会先清空账本段再执行；再次点击确认。',
+        'ledger.actionsHint': '这些按钮运行内置 CLI；账本已存在时会先把账本段移入 .trash，保证每次从一致基线开始。',
+        'ledger.resetHint': '账本已存在：运行会先移入 .trash 再执行；再次点击确认。',
         'ledger.lastAction': '最近操作',
         'meta.updated': '更新于 {time}',
         'meta.readonly': '只读视图：面板不会自行写入账本，只有上方按钮会写入。',
@@ -158,12 +162,14 @@ window.__ModuleLoader__.load({
         'watchdog.mode': '观察模式：只记录，不关闭插件',
         'watchdog.modeEnforce': '执行模式：超限操作会被回滚、关闭或隔离',
         'watchdog.enforceTitle': '执行状态',
+        'watchdog.actionError': '面板操作失败',
         'watchdog.enforceOn': '执行中',
         'watchdog.observeOnly': '仅观察',
         'watchdog.freezeHint': '堆水位已冻结（{level}）：除释放类操作外，所有插件操作被禁止。请关闭下方内存最大的插件或重启 DSH。',
         'watchdog.confirmPause': '我已知晓：允许插件操作 10 分钟',
         'watchdog.quarantine': '插件监狱',
         'watchdog.noQuarantine': '没有被隔离的插件。',
+        'watchdog.thirdPartyPending': '待人工处理的第三方插件（触发上限）：{n}',
         'watchdog.release': '假释',
         'watchdog.topFive': '按估算内存排序的前 {n} 个插件',
         'watchdog.close': '立即缉拿',
@@ -176,6 +182,7 @@ window.__ModuleLoader__.load({
         'watchdog.heap6gOn': '取消 6GB 堆请求',
         'watchdog.heap6gPending': '已写入 watchdog 状态目录；需要外部启动器消费（当前未安装）。',
         'watchdog.pendingBoot': '已写入 pending-boot 计划（{level}），但当前未安装外部消费器：只有本次运行内的进程内隔离生效，下次启动需人工处理。',
+        'watchdog.pendingBootConsumer': '消费器：{consumer}',
         'watchdog.disabled': 'watchdog 行未启用，暂时无法观察内存。',
         'watchdog.heap': '已用堆',
         'watchdog.limit': '堆上限',
@@ -188,6 +195,7 @@ window.__ModuleLoader__.load({
         'waterline.danger': '危险',
         'waterline.warn': '警告',
         'waterline.pause': '暂停',
+        'waterline.frost': '已冻结',
         'waterline.block': '禁止',
         'prison.title': '插件监狱',
         'prison.top': '按估算内存排序的前 {n} 个插件',
@@ -356,10 +364,11 @@ window.__ModuleLoader__.load({
       return h('span', { style: C.pill }, h('span', { style: { ...C.dot, background: color } }), h('span', null, text))
     }
 
-    function fetchStatus() {
+    function fetchStatus(signal) {
       return fetch(new URL(STATUS_URL, document.baseURI), {
         credentials: 'same-origin',
         headers: { accept: 'application/json' },
+        signal,
       }).then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         return response.json()
@@ -383,10 +392,11 @@ window.__ModuleLoader__.load({
     }
 
     /** Read-only watchdog snapshot; a missing row (or 404) simply hides the cards. */
-    function fetchWatchdog() {
+    function fetchWatchdog(signal) {
       return fetch(new URL(WATCHDOG_URL, document.baseURI), {
         credentials: 'same-origin',
         headers: { accept: 'application/json' },
+        signal,
       }).then((response) => {
         if (!response.ok) return null
         return response.json().then((payload) => (payload && payload.ok ? payload : null))
@@ -394,13 +404,19 @@ window.__ModuleLoader__.load({
     }
 
 
-    function postWatchdogAction(action, target) {
+    function postWatchdogAction(action, target, extra = {}) {
       return fetch(new URL(WATCHDOG_ACTION_URL, document.baseURI), {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({ action, target }),
-      }).then((response) => response.json())
+        body: JSON.stringify({ action, target, ...extra }),
+      }).then(async (response) => {
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok || payload.ok !== true) {
+          throw new Error(payload.error || `HTTP ${response.status}`)
+        }
+        return payload
+      })
     }
 
     function MemoryCard({ watchdog }) {
@@ -414,17 +430,18 @@ window.__ModuleLoader__.load({
       }
       const heap = watchdog.heap || {}
       const thresholds = watchdog.thresholds || {}
+      const display = thresholds.display || thresholds
       const ratio = heap.heapLimit > 0 ? Math.min(1, heap.heapUsed / heap.heapLimit) : 0
-      const percent = Math.floor(ratio * 100)
-      // 水位色带：≤30% 轻松（绿）、31–70% 正常（蓝）、71–95% 警告（黄）、≥96% 危险（红）
+      // 水位只读看护器的真源：不再用 heapUsed 百分比另算一套等级。
+      const level = watchdog.waterline || 'ok'
       const band =
-        percent <= 30
-          ? { tone: 'ok', key: 'waterline.easy', color: C.ok.color }
-          : percent <= 70
-            ? { tone: 'info', key: 'waterline.normal', color: '#2563eb' }
-            : percent <= 95
+        level === 'frost'
+          ? { tone: 'error', key: 'waterline.frost', color: C.error.color }
+          : level === 'pause'
+            ? { tone: 'warn', key: 'waterline.pause', color: '#b45309' }
+            : level === 'warn'
               ? { tone: 'warn', key: 'waterline.warn', color: '#b45309' }
-              : { tone: 'error', key: 'waterline.danger', color: C.error.color }
+              : { tone: 'ok', key: 'waterline.ok', color: C.ok.color }
       const tone = band.color
       return h(
         'section',
@@ -434,7 +451,7 @@ window.__ModuleLoader__.load({
           { style: C.cardHead },
           t('watchdog.title'),
           h('span', { style: { ...C.chip, marginLeft: 8 } }, (watchdog.enforce ? t('watchdog.modeEnforce') : t('watchdog.mode'))),
-          h(Pill, { tone: band.tone, text: `${t('watchdog.waterline')}: ${t(band.key)} · ${percent}%` }),
+          h(Pill, { tone: band.tone, text: `${t('watchdog.waterline')}: ${t(band.key)}` }),
         ),
         h(
           'div',
@@ -445,14 +462,14 @@ window.__ModuleLoader__.load({
           'div',
           { style: C.grid },
           h('div', { style: C.key }, t('watchdog.heap')),
-          h('div', { style: C.mono }, `${Math.round(heap.heapUsed / 1048576)} MB / ${Math.round(heap.heapLimit / 1048576)} MB（${percent}%）`),
+          h('div', { style: C.mono }, `${Math.round(heap.heapUsed / 1048576)} MB / ${Math.round(heap.heapLimit / 1048576)} MB`),
           h('div', { style: C.key }, t('watchdog.rss')),
           h('div', { style: C.mono }, `${Math.round((heap.rss || 0) / 1048576)} MB`),
           h('div', { style: C.key }, t('watchdog.thresholds')),
           h(
             'div',
             { style: C.mono },
-            `${Math.round(thresholds.totalWarn / 1048576)} / ${Math.round(thresholds.totalPause / 1048576)} / ${Math.round(thresholds.totalBlock / 1048576)} MB`,
+            `${Math.round(display.totalWarn / 1048576)} / ${Math.round(display.totalPause / 1048576)} / ${Math.round(display.totalBlock / 1048576)} MB`,
           ),
         ),
       )
@@ -497,7 +514,6 @@ window.__ModuleLoader__.load({
                 ),
               ),
             ),
-        h('p', { style: { ...C.muted, fontSize: 12, margin: '10px 0 4px' } }, t('prison.empty')),
         incidents.length > 0
           ? h(
               'div',
@@ -520,20 +536,26 @@ window.__ModuleLoader__.load({
     }
 
     function EnforceCard({ watchdog, refresh }) {
+      const [actionError, setActionError] = React.useState(null)
       if (!watchdog || !watchdog.ok) return null
       const act = (name, target, prompt) => {
         if (prompt && !window.confirm(prompt)) return
-        postWatchdogAction(name, target).then(() => refresh()).catch(() => refresh())
+        setActionError(null)
+        postWatchdogAction(name, target)
+          .then(() => refresh())
+          .catch((cause) => {
+            setActionError(String((cause && cause.message) || cause))
+            refresh()
+          })
       }
       const toggleHeap6g = (enabled) => {
-        fetch(new URL(WATCHDOG_ACTION_URL, document.baseURI), {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'content-type': 'application/json', accept: 'application/json' },
-          body: JSON.stringify({ action: 'heap6g', enabled }),
-        })
+        setActionError(null)
+        postWatchdogAction('heap6g', '', { enabled })
           .then(() => refresh())
-          .catch(() => refresh())
+          .catch((cause) => {
+            setActionError(String((cause && cause.message) || cause))
+            refresh()
+          })
       }
       const frozen = Boolean(watchdog.frozenAt) || watchdog.waterline === 'frost'
       const paused = Boolean(watchdog.pausedAt) || watchdog.waterline === 'pause'
@@ -545,6 +567,7 @@ window.__ModuleLoader__.load({
       const button = { cursor: 'pointer', padding: '3px 9px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l1, rgba(0,0,0,.18))', background: 'transparent', fontSize: 12 }
       return h('section', { style: C.card },
         h('div', { style: C.cardHead }, t('watchdog.enforceTitle'), h('span', { style: { ...C.chip, marginLeft: 8 } }, watchdog.enforce ? t('watchdog.enforceOn') : t('watchdog.observeOnly'))),
+        actionError ? h('p', { style: { color: C.error.color, fontSize: 12.5, margin: '0 0 8px', wordBreak: 'break-word' } }, t('watchdog.actionError') + ': ' + actionError) : null,
         frozen ? h('p', { style: { color: C.error.color, fontSize: 12.5, margin: '0 0 8px' } }, t('watchdog.freezeHint', { level: watchdog.waterline })) : null,
         paused && !grace ? h('div', { style: { margin: '0 0 10px' } }, h('button', { style: { ...button, padding: '6px 12px' }, onClick: () => act('confirm-pause') }, t('watchdog.confirmPause'))) : null,
         h('div', { style: { ...C.key, marginBottom: 4 } }, t('watchdog.quarantine')),
@@ -583,6 +606,11 @@ window.__ModuleLoader__.load({
             ))),
           ),
         ),
+        Array.isArray(watchdog.thirdPartyPending) && watchdog.thirdPartyPending.length > 0
+          ? h('p', { style: { ...C.muted, fontSize: 11.5, margin: '6px 0 0' } },
+              t('watchdog.thirdPartyPending', { n: watchdog.thirdPartyPending.length })
+              + ' ' + watchdog.thirdPartyPending.map((entry) => entry.name + (entry.mb != null ? ' (' + entry.mb + ' MB)' : '')).join(', '))
+          : null,
         crashPlan ? h('div', { style: { marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--dsw-alias-border-l1, rgba(0,0,0,.12))' } },
           h('div', { style: { ...C.key, marginBottom: 4 } }, t('crashPlan.title')),
           h('div', { style: { fontSize: 12.5, marginBottom: 4 } },
@@ -610,11 +638,15 @@ window.__ModuleLoader__.load({
         watchdog.baseline ? h('p', { style: { ...C.muted, fontSize: 11.5, margin: '10px 0 0' } }, t('watchdog.baseline', { at: watchdog.baseline.at })) : null,
         watchdog.tamper ? h('p', { style: { ...C.muted, fontSize: 11.5, margin: '6px 0 0' } }, t('watchdog.tamper', { n: (watchdog.tamper.files || []).length, at: watchdog.tamper.lastCheckAt || '—', policy: watchdog.tamper.policy || '' })) : null,
         watchdog.pendingBoot && watchdog.pendingBoot.exists
-          ? h('p', { style: { color: '#b45309', fontSize: 11.5, margin: '6px 0 0' } }, t('watchdog.pendingBoot', { level: watchdog.pendingBoot.level || '?' }))
+          ? h('p', { style: { color: '#b45309', fontSize: 11.5, margin: '6px 0 0' } },
+              t('watchdog.pendingBoot', { level: watchdog.pendingBoot.level || '?' })
+              + ' · ' + t('watchdog.pendingBootConsumer', { consumer: watchdog.pendingBoot.consumer || 'none' })
+              + (watchdog.pendingBoot.hint ? ' · ' + watchdog.pendingBoot.hint : '')
+            )
           : null,
         h('div', { style: { marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
-          h('button', { style: button, onClick: () => toggleHeap6g(!watchdog.heap6g) }, watchdog.heap6g ? t('watchdog.heap6gOn') : t('watchdog.heap6gOff')),
-          watchdog.heap6g ? h('span', { style: { ...C.muted, fontSize: 11.5 } }, t('watchdog.heap6gPending')) : null,
+          h('button', { style: button, onClick: () => toggleHeap6g(!(watchdog.heap6g || watchdog.heap6gRequest)) }, (watchdog.heap6g || watchdog.heap6gRequest) ? t('watchdog.heap6gOn') : t('watchdog.heap6gOff')),
+          (watchdog.heap6g || watchdog.heap6gRequest) ? h('span', { style: { ...C.muted, fontSize: 11.5 } }, t('watchdog.heap6gPending')) : null,
         ),
         h('div', { style: { marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
           h('button', { style: { ...button, padding: '5px 10px', opacity: frozen ? 0.5 : 1 }, disabled: frozen, title: frozen ? t('watchdog.measureBlocked') : undefined, onClick: () => { if (!frozen) act('probe') } }, t('watchdog.measure')),
@@ -739,38 +771,72 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = React.useState(null)
       const [lastResult, setLastResult] = React.useState(null)
       const [watchdog, setWatchdog] = React.useState(null)
+      const statusAbort = React.useRef(null)
+      const statusInFlight = React.useRef(false)
+      const watchdogAbort = React.useRef(null)
+      const watchdogInFlight = React.useRef(false)
 
       const load = React.useCallback(() => {
+        // A slow verify can exceed the 20s cadence; skip instead of stacking requests.
+        if (statusInFlight.current) return
+        statusInFlight.current = true
+        const controller = new AbortController()
+        statusAbort.current = controller
         setLoading(true)
         setError(null)
-        fetchStatus()
+        fetchStatus(controller.signal)
           .then((payload) => {
             setData(payload)
             setUpdated(new Date())
-            setLoading(false)
           })
           .catch((cause) => {
+            if (cause && cause.name === 'AbortError') return
             setError(String((cause && cause.message) || cause))
-            setLoading(false)
+          })
+          .finally(() => {
+            if (statusAbort.current === controller) {
+              statusAbort.current = null
+              statusInFlight.current = false
+              setLoading(false)
+            }
           })
       }, [])
 
       React.useEffect(() => {
         load()
         const timer = setInterval(load, 20000)
-        return () => clearInterval(timer)
+        return () => {
+          clearInterval(timer)
+          if (statusAbort.current) statusAbort.current.abort()
+        }
       }, [load])
 
       const refreshWatchdog = React.useCallback(() => {
-        fetchWatchdog()
+        if (watchdogInFlight.current) return
+        watchdogInFlight.current = true
+        const controller = new AbortController()
+        watchdogAbort.current = controller
+        fetchWatchdog(controller.signal)
           .then((payload) => setWatchdog(payload))
-          .catch(() => setWatchdog(null))
+          .catch((cause) => {
+            if (cause && cause.name === 'AbortError') return
+            setWatchdog(null)
+          })
+          .finally(() => {
+            if (watchdogAbort.current === controller) {
+              watchdogAbort.current = null
+              watchdogInFlight.current = false
+            }
+          })
       }, [])
 
       React.useEffect(() => {
         refreshWatchdog()
         const timer = setInterval(refreshWatchdog, 15000)
-        return () => clearInterval(timer)
+        return () => {
+          clearInterval(timer)
+          if (watchdogAbort.current) watchdogAbort.current.abort()
+        }
       }, [refreshWatchdog])
 
       const runAction = React.useCallback(

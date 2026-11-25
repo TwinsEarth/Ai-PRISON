@@ -25,3 +25,10 @@ test('an unknown reason falls back to the hot-ops explanation', () => {
   assert.equal(entry.code, 'hot-ops')
   assert.match(entry.title, /热操作/)
 })
+
+test('budget remediation states the pending-boot consumer boundary', () => {
+  const entry = remediationFor('budget')
+  assert.match(entry.impact, /不附带/)
+  assert.match(entry.impact, /人工/)
+  assert.doesNotMatch(entry.impact, /会被外部 guard 直接剔除/)
+})
