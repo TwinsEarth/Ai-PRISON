@@ -186,7 +186,7 @@ go run ./cmd/aiprison drill
 go run ./examples/basic
 ```
 
-Current releases: DSH plugin **1.9.5** (tag `dsh-plugin-v1.9.5`, npm
+Current releases: DSH plugin **1.9.6** (tag `dsh-plugin-v1.9.6`, npm
 `@twinsearth/ai-prison-dsh-plugin`) and the bundled CLI **v1.0.9** (tag
 `v1.0.9`). The standalone `@twinsearth/aiprison` npm package is the legacy CLI
 channel — install the DSH plugin instead.

@@ -2,6 +2,22 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.9.6] — 2026-11-27
+
+### Added — explicit committee charter amendments
+
+- The four mandatory seats remain non-removable by default. A removal is only
+  possible through an explicit charter amendment supplied at startup.
+- An amended charter must be a non-empty subset of the four mandatory seats,
+  keep at least two seats, exclude `affected_node`, carry `--charter-reason`,
+  and be covered by the actual roster.
+- Each case ledger records `charterReason` (omitempty) when an amendment is in
+  force, so the reason travels with every case.
+
+### Verification
+
+- Charter matrix: 26/26 PASS. Default ledger size and sha are unchanged.
+
 ## [1.9.5] — 2026-11-27
 
 ### Added — bounded memory and watchdog bridge
