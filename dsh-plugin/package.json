@@ -1,6 +1,6 @@
 {
   "name": "@twinsearth/ai-prison-dsh-plugin",
-  "version": "1.9.4",
+  "version": "1.9.5",
   "description": "AI Prison for DSH: nine governance tools wrapping the aiprison CLI (levels, status, watchdog status, demo, drill, inspect, verify, repair-tail, watchdog bridge) plus a panel for the L0–L5 matrix and the audit-chain state. The CLI ships bundled for Windows, macOS and Linux; every capability-removal backend stays simulated.",
   "type": "module",
   "main": "index.js",

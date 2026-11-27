@@ -2,6 +2,30 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.9.5] — 2026-11-27
+
+### Added — bounded memory and watchdog bridge
+
+- `FileStore` keeps a hot window (default 8 segments = 2,048 records) and
+  replays cold segments on demand; the audit chain retains 1,024 event bodies
+  and 144-byte summaries for older events.
+- New CLI commands `ingest-watchdog` and `metrics`, plus the ninth DSH tool
+  `ai_prison_watchdog_bridge`, incrementally ingest watchdog incidents and
+  return merged ledger/watchdog metrics.
+
+### Fixed — no panic, no dropped errors, explicit concurrency contract
+
+- `hashRecord`, `storeRecord` and `hashOf` return errors instead of
+  panicking; `Chain.Append` fail-closes and `Verify` reports `chain poisoned`.
+- Pipeline and persistence errors are propagated with context; `Close` no
+  longer drops the store error.
+- System maps move behind `sysState` (`sync.RWMutex`) with a documented
+  concurrency contract.
+
+### Verification
+
+- Robustness matrix: 29/29 PASS. Plugin suite: 175/175. Release check: 11/11.
+
 ## [1.9.4] — 2026-11-27
 
 ### Added — configurable runtime surface
