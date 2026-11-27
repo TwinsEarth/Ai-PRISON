@@ -2,6 +2,27 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.9.7] — 2026-11-28
+
+### Added — quality gates that can fail
+
+- `cmd/aiprison` exposes `runCLI` for testability; nine CLI test functions
+  cover the full configuration surface, exit codes 0/1/2, demo/verify/inspect/
+  repair-tail/drill/watchdog/metrics and `shortHash`. Package coverage: 71.1%.
+- Clean checkouts build the host binary through `pretest`; manifest and status
+  tests skip explicitly when a platform binary is absent instead of failing
+  with a misleading red.
+- Linux full `go test -race ./...`: 15 packages PASS. DSH Host Loader
+  `0.2.2-rc.5` boots, returns HTTP 200 and serves the 41,445-byte panel plus
+  44,582-byte `client.js`.
+- Windows ARM64 is covered by cross-build plus PE machine `0xAA64`; real
+  Windows ARM64 hardware is out of scope by explicit decision.
+
+### Verification
+
+- Windows clean checkout: 174 pass / 1 skip / 0 fail. Linux clean checkout:
+  170 pass / 5 skip / 0 fail. Main plugin suite: 175/175. Release check: 11/11.
+
 ## [1.9.6] — 2026-11-27
 
 ### Added — explicit committee charter amendments
