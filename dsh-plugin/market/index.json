@@ -16,8 +16,8 @@
         "zh": "AI Prison · AI 监狱"
       },
       "description": {
-        "en": "Wraps the aiprison CLI as eight DSH tools (levels, status, watchdog status, demo, drill, inspect, verify, repair-tail) and adds a sidebar panel showing the L0–L5 grading matrix together with the durable ledger's audit-chain integrity and record count. Open it from the sidebar's shield entry; the panel is read-only and never writes to the ledger. Ledgers live in <session working directory>/.ai-prison unless a data directory is configured. Every capability-removal backend (GRAM, TLM, hardware binding, MicroVM isolation) stays simulated, so the tools audit and demonstrate governance instead of enforcing real isolation.",
-        "zh": "把 aiprison CLI 封装为八个 DSH 工具（levels、status、watchdog status、demo、drill、inspect、verify、repair-tail），并在侧边栏增加一个面板：展示 L0–L5 分级矩阵，以及落盘账本的审计链完整性与记录数。从侧边栏的盾牌入口打开；面板只读，不会写入数据目录。账本默认写到 <会话工作目录>/.ai-prison，也可在配置里指定数据目录。GRAM、TLM、硬件绑定、MicroVM 隔离等能力摘除后端全部为内存模拟 —— 这些工具用于审计与演示治理流程，并不执行真实隔离。"
+        "en": "Wraps the aiprison CLI as nine DSH tools (levels, status, watchdog status, demo, drill, inspect, verify, repair-tail, watchdog bridge) and adds a sidebar panel showing the L0–L5 grading matrix together with the durable ledger's audit-chain integrity and record count. Open it from the sidebar's shield entry; the panel is read-only and never writes to the ledger. Ledgers live in <session working directory>/.ai-prison unless a data directory is configured. Every capability-removal backend (GRAM, TLM, hardware binding, MicroVM isolation) stays simulated, so the tools audit and demonstrate governance instead of enforcing real isolation.",
+        "zh": "把 aiprison CLI 封装为九个 DSH 工具（levels、status、watchdog status、demo、drill、inspect、verify、repair-tail、watchdog bridge），并在侧边栏增加一个面板：展示 L0–L5 分级矩阵，以及落盘账本的审计链完整性与记录数。从侧边栏的盾牌入口打开；面板只读，不会写入数据目录。账本默认写到 <会话工作目录>/.ai-prison，也可在配置里指定数据目录。GRAM、TLM、硬件绑定、MicroVM 隔离等能力摘除后端全部为内存模拟 —— 这些工具用于审计与演示治理流程，并不执行真实隔离。"
       },
       "author": "TwinsEarth",
       "homepage": "https://github.com/TwinsEarth/Ai-PRISON/tree/main/dsh-plugin",
@@ -28,8 +28,8 @@
       "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzNiIgaGVpZ2h0PSIzNiIgdmlld0JveD0iMCAwIDM2IDM2IiBmaWxsPSJub25lIj4KICA8cGF0aCBkPSJNMTggNC40IDI5LjQgOXY5LjFjMCA2LjctMTEuNCAxMy4yLTExLjQgMTMuMlM2LjYgMjQuNyA2LjYgMTguMVY5eiIgc3Ryb2tlPSIjMzM0MTU1IiBzdHJva2Utd2lkdGg9IjIuMiIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik0xNCAxMi42djExLjJNMTggMTEuNHYxMy40TTIyIDEyLjZ2MTEuMiIgc3Ryb2tlPSIjMzM0MTU1IiBzdHJva2Utd2lkdGg9IjIuMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGNpcmNsZSBjeD0iMTgiIGN5PSIyNy40IiByPSIyLjEiIGZpbGw9IiMzMzQxNTUiLz4KPC9zdmc+",
       "versions": [
         {
-          "version": "1.9.3",
-          "publishTimestamp": 1795617574,
+          "version": "1.9.4",
+          "publishTimestamp": 1795684800,
           "source": {
             "type": "npm",
             "registry": "https://registry.npmjs.org"

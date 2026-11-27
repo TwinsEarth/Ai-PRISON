@@ -79,6 +79,12 @@ func RunRecoveryDrill() *DrillReport {
 	return sys.Drill()
 }
 
+// RunRecoveryDrillConfig is RunRecoveryDrill with the caller's configuration
+// (quota / custody threshold / freeze threshold / committee roster) applied.
+func RunRecoveryDrillConfig(cfg Config) *DrillReport {
+	return NewSystem(cfg).Drill()
+}
+
 // Drill runs the full recovery matrix on the receiver System. It is separate
 // from RunRecoveryDrill so a caller can reuse one System and inspect its shared
 // substrate (chain / set) afterwards.
@@ -148,7 +154,7 @@ func (sys *System) drillSubject(
 			Signals:     []string{"drill:" + string(viol)},
 			Description: "simulated defensive drill signal",
 		},
-		Votes:          ScenarioVotes(id, now),
+		Votes:          sys.scenarioVotes(id, now),
 		Accountability: sys.drillAccountability(&a, now),
 	})
 	if err != nil {

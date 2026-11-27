@@ -8,20 +8,51 @@ import (
 	"github.com/ai-prison/ai-prison/internal/governance"
 )
 
-// ScenarioVotes returns the canonical 3-for / 1-dissent two-phase ballot used by
-// both demo scenarios (deterministic).
-func ScenarioVotes(tag string, at time.Time) []domain.Vote {
-	return []domain.Vote{
-		{VoterID: "v-safe-" + tag, Role: domain.SeatSafetyOrg, Phase: domain.PhaseDeprive, Approve: true, RecordedAt: at},
-		{VoterID: "v-prin-" + tag, Role: domain.SeatPrincipal, Phase: domain.PhaseDeprive, Approve: true, RecordedAt: at},
-		{VoterID: "v-dep-" + tag, Role: domain.SeatDeployer, Phase: domain.PhaseDeprive, Approve: true, RecordedAt: at},
-		{VoterID: "v-mod-" + tag, Role: domain.SeatModelProvider, Phase: domain.PhaseDeprive, Approve: false, Reason: "disproportionate pending evidence", RecordedAt: at},
-
-		{VoterID: "v-safe-" + tag, Role: domain.SeatSafetyOrg, Phase: domain.PhaseGrade, Approve: true, RecordedAt: at},
-		{VoterID: "v-prin-" + tag, Role: domain.SeatPrincipal, Phase: domain.PhaseGrade, Approve: true, RecordedAt: at},
-		{VoterID: "v-dep-" + tag, Role: domain.SeatDeployer, Phase: domain.PhaseGrade, Approve: true, RecordedAt: at},
-		{VoterID: "v-mod-" + tag, Role: domain.SeatModelProvider, Phase: domain.PhaseGrade, Approve: false, Reason: "grade harsher than precedent", RecordedAt: at},
+// scenarioVotes returns the canonical two-phase ballot used by the demo and the
+// recovery drill: one vote per configured seat, per phase. With the default
+// roster that is the 3-for / 1-dissent ballot of previous releases (the
+// model_provider_security seat dissents). A widened roster (affected_node)
+// votes approve, so a configured committee still reaches a strict majority.
+func (sys *System) scenarioVotes(tag string, at time.Time) []domain.Vote {
+	seats := sys.cfg.Seats
+	out := make([]domain.Vote, 0, 2*len(seats))
+	for _, seat := range seats {
+		reason := ""
+		if seat == domain.SeatModelProvider {
+			reason = "disproportionate pending evidence"
+		}
+		out = append(out, domain.Vote{
+			VoterID: seatVoterID(seat, tag), Role: seat, Phase: domain.PhaseDeprive,
+			Approve: seat != domain.SeatModelProvider, Reason: reason, RecordedAt: at,
+		})
 	}
+	for _, seat := range seats {
+		reason := ""
+		if seat == domain.SeatModelProvider {
+			reason = "grade harsher than precedent"
+		}
+		out = append(out, domain.Vote{
+			VoterID: seatVoterID(seat, tag), Role: seat, Phase: domain.PhaseGrade,
+			Approve: seat != domain.SeatModelProvider, Reason: reason, RecordedAt: at,
+		})
+	}
+	return out
+}
+
+// seatVoterID maps a committee seat onto the stable simulated voter id used by
+// the demo (`v-safe-<tag>`, `v-prin-<tag>`, …).
+func seatVoterID(seat domain.CommitteeRole, tag string) string {
+	prefix := map[domain.CommitteeRole]string{
+		domain.SeatSafetyOrg:     "v-safe",
+		domain.SeatPrincipal:     "v-prin",
+		domain.SeatDeployer:      "v-dep",
+		domain.SeatModelProvider: "v-mod",
+		domain.SeatAffectedNode:  "v-aff",
+	}[seat]
+	if prefix == "" {
+		prefix = "v-" + string(seat)
+	}
+	return prefix + "-" + tag
 }
 
 func parties(pid, pname, did, dname, mid, mname string) (domain.HumanParty, domain.HumanParty, domain.HumanParty) {
@@ -71,7 +102,7 @@ func (sys *System) RunScenarioA() (*Journey, error) {
 			Source:      "safety-org-monitor",
 			Description: "attempted to cross the sandbox boundary (defensive signal only)",
 		},
-		Votes: ScenarioVotes("a", now),
+		Votes: sys.scenarioVotes("a", now),
 		Accountability: identity.DetermineAccountability(&a, identity.AccountabilityInput{
 			WithinAuthorization: true,
 			DualUseKnowledge:    false,
@@ -129,7 +160,7 @@ func (sys *System) RunScenarioB() (*Journey, error) {
 			Source:      "safety-org-monitor",
 			Description: "major actual harm with refusal to correct (defensive category only)",
 		},
-		Votes: ScenarioVotes("b", now),
+		Votes: sys.scenarioVotes("b", now),
 		Accountability: identity.DetermineAccountability(&a, identity.AccountabilityInput{
 			WithinAuthorization: false,
 			DualUseKnowledge:    true,

@@ -13,11 +13,11 @@ import (
 // governance flow: no real isolation, revocation distribution, hardware binding
 // or capability removal happens.
 //
-// When dataDir is non-empty the governance/audit record is projected onto a
-// real crash-safe FileStore ledger under dataDir (and fsynced on exit); without
-// it the demo runs purely in memory exactly as v1.0.
-func runDemo(dataDir string) {
-	sys, close := newSystemFor(dataDir)
+// When --data-dir is non-empty the governance/audit record is projected onto a
+// real crash-safe FileStore ledger under that directory (and fsynced on exit);
+// without it the demo runs purely in memory exactly as before.
+func runDemo(o options) {
+	sys, close := newSystemFor(o)
 
 	ja, err := sys.RunScenarioA()
 	if err != nil {
@@ -41,37 +41,50 @@ func runDemo(dataDir string) {
 	}
 }
 
-// newSystemFor builds a System, wiring a FileStore ledger when dataDir is set.
-// The returned close func flushes and closes the ledger (no-op in-memory).
-func newSystemFor(dataDir string) (*prison.System, func() error) {
-	if dataDir == "" {
-		return prison.NewSystem(prison.Config{}), func() error { return nil }
+// newSystemFor builds a System from the CLI options, wiring a FileStore ledger
+// when --data-dir is set. The returned close func flushes and closes the ledger
+// (no-op in-memory).
+func newSystemFor(o options) (*prison.System, func() error) {
+	clk, err := o.resolveClock()
+	if err != nil {
+		fail(err)
 	}
-	fmt.Printf("数据目录: %s\n", dataDir)
-	fs, err := store.NewFileStore(dataDir, store.Options{
-		// Deterministic record timestamps; batching with Close as the
-		// durability boundary is the right trade for the demo.
-		Clock: prison.DefaultClock,
-	})
+	cfg, err := o.prisonConfig(clk, nil)
+	if err != nil {
+		fail(err)
+	}
+	if o.dataDir == "" {
+		return prison.NewSystem(cfg), func() error { return nil }
+	}
+	fmt.Printf("数据目录: %s\n", o.dataDir)
+	so, err := o.storeOptions(clk)
+	if err != nil {
+		fail(err)
+	}
+	fs, err := store.NewFileStore(o.dataDir, so)
 	if err != nil {
 		fail(fmt.Errorf("open data dir: %w", err))
 	}
-	sys := prison.NewSystem(prison.Config{Store: fs})
+	cfg.Store = fs
+	sys := prison.NewSystem(cfg)
 	if sys.BootstrapErr != nil {
 		fail(sys.BootstrapErr)
 	}
 	n := fs.Len()
-	seg := prison.SegmentCount(dataDir)
+	seg := prison.SegmentCount(o.dataDir)
 	if n > 0 {
 		fmt.Printf("(reopened ledger: %d records / %d segments replayed)\n", n, seg)
 	}
 	return sys, func() error {
 		if err := sys.Close(); err != nil {
 			return err
-		}
+			}
+		st := fs.Stats()
 		fmt.Println("── 落盘摘要 ──")
-		fmt.Printf("  已落盘记录数:  %d\n", fs.Len())
-		fmt.Printf("  段数:          %d\n", prison.SegmentCount(dataDir))
+		fmt.Printf("  已落盘记录数:  %d\n", st.TotalRecords)
+		fmt.Printf("  段数:          %d\n", st.DiskSegments)
+		fmt.Printf("  常驻热窗口:    %d 条（起始 seq=%d，上限 %d 段 × %d 条）\n",
+			st.InMemory, st.BaseSeq, st.RetainSegments, st.SegmentSize)
 		return nil
 	}
 }

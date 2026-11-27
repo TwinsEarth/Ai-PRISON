@@ -4,9 +4,11 @@ import (
 	"github.com/ai-prison/ai-prison/internal/domain"
 )
 
-// mandatorySeats are the four committee seats that MUST be constituted before
-// either consent vote (committee-charter.md §2). affected_node is optional and
-// only added when the harm involves cross-network collaboration.
+// mandatorySeats are the four default committee seats that MUST be constituted
+// before either consent vote (committee-charter.md §2). An instance may adopt an
+// explicit narrower charter via Config.CharterSeats; the default stays four.
+// affected_node is optional and only added when the harm involves cross-network
+// collaboration.
 var mandatorySeats = []domain.CommitteeRole{
 	domain.SeatSafetyOrg,
 	domain.SeatPrincipal,
@@ -59,8 +61,10 @@ func (g *Governance) AdmitEvidence(caseID string, charges []domain.Charge) (*Cas
 
 // ConfirmBaseline completes stage ③ (分级基线确认 + 管辖权与委员会组建): the
 // recommended baseline level is confirmed from the violation table and the
-// five-seat committee is formed. The four mandatory seats must all be present;
-// affected_node is accepted when the harm spans network collaboration.
+// five-seat committee is formed. Every seat in this instance's charter must be
+// present (the default charter is the four mandatory seats; an amended charter
+// narrows it); affected_node is accepted when the harm spans network
+// collaboration.
 func (g *Governance) ConfirmBaseline(caseID string, seats []domain.CommitteeRole) (*Case, error) {
 	g.mu.Lock()
 	c, err := g.mustCaseAt(caseID, Stage3Baseline)
@@ -68,11 +72,12 @@ func (g *Governance) ConfirmBaseline(caseID string, seats []domain.CommitteeRole
 		g.mu.Unlock()
 		return nil, err
 	}
-	if err := checkMandatorySeats(seats); err != nil {
+	if err := g.checkMandatorySeats(seats); err != nil {
 		g.mu.Unlock()
 		return nil, err
 	}
 	c.Seats = append([]domain.CommitteeRole(nil), seats...)
+	c.CharterReason = g.charterReason
 	c.Stage = Stage4DepriveVote
 	g.mu.Unlock()
 
@@ -255,13 +260,15 @@ func (g *Governance) mustCaseAt(caseID string, want AdjudicationStage) (*Case, e
 	return c, nil
 }
 
-// checkMandatorySeats ensures all four charter-mandated seats are present.
-func checkMandatorySeats(seats []domain.CommitteeRole) error {
+// checkMandatorySeats ensures every seat in this instance's charter is present.
+// The default charter is the four charter-mandated seats; a Governance built
+// with Config.CharterSeats deliberately enforces the amended subset instead.
+func (g *Governance) checkMandatorySeats(seats []domain.CommitteeRole) error {
 	have := make(map[domain.CommitteeRole]bool, len(seats))
 	for _, s := range seats {
 		have[s] = true
 	}
-	for _, m := range mandatorySeats {
+	for _, m := range g.charter {
 		if !have[m] {
 			return ErrCommitteeIncomplete
 		}

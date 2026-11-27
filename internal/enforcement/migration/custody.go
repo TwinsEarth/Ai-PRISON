@@ -49,6 +49,15 @@ func NewMemCustodyStore(events EventSink) *MemCustodyStore {
 	return &MemCustodyStore{items: make(map[string]sealedCustodyRow), events: events, now: time.Now}
 }
 
+// WithClock pins the custody store's seal timestamps so a configured clock
+// makes the whole ledger reproducible.
+func (s *MemCustodyStore) WithClock(f func() time.Time) *MemCustodyStore {
+	if f != nil {
+		s.now = f
+	}
+	return s
+}
+
 // Seal splits the snapshot across the named custodians behind an M-of-N
 // threshold. Re-sealing the same id returns the existing record unchanged
 // (idempotent). The simulated shares are generated deterministically from the

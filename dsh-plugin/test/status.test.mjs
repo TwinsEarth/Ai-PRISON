@@ -10,6 +10,14 @@ import { buildStatus, inspectLedger, statusSummary } from '../lib/status.js'
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const bin = bundledCliPath({ root: pluginRoot })
 
+function skipWithoutBin(t) {
+  if (!bin) {
+    t.skip('no bundled CLI for this platform; run scripts/ensure-bin.mjs')
+    return true
+  }
+  return false
+}
+
 function tempWorkspace(prefix) {
   const dir = fs.mkdtempSync(path.join(pluginRoot, `.tmp-${prefix}-`))
   return dir
@@ -23,7 +31,8 @@ function cleanup(dir) {
   }
 }
 
-test('a missing ledger reads as not initialized', async () => {
+test('a missing ledger reads as not initialized', async (t) => {
+  if (skipWithoutBin(t)) return
   const cwd = tempWorkspace('status-none')
   try {
     const ledger = await inspectLedger({ bin, dataDir: path.join(cwd, '.ai-prison') })

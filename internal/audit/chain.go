@@ -43,8 +43,9 @@ type canonicalEvent struct {
 
 // hashOf computes the canonical SHA-256 hex digest of one event. The input is
 // fully deterministic: index, type, agentId, sentenceId, actor, sorted-key
-// payload JSON, RFC3339Nano UTC timestamp and prevHash.
-func hashOf(ev domain.Event) string {
+// payload JSON, RFC3339Nano UTC timestamp and prevHash. It returns an error
+// rather than panicking so a malformed event fails as a diagnosable error.
+func hashOf(ev domain.Event) (string, error) {
 	canon := canonicalEvent{
 		Index:      ev.Index,
 		Type:       ev.Type,
@@ -57,23 +58,63 @@ func hashOf(ev domain.Event) string {
 	}
 	b, err := json.Marshal(canon)
 	if err != nil {
-		// canonicalEvent contains only strings/maps of strings; marshalling
-		// cannot fail in practice. Panic loudly rather than store a bad hash.
-		panic(fmt.Errorf("audit: canonical marshal: %w", err))
+		return "", fmt.Errorf("audit: canonical marshal at index %d: %w", ev.Index, err)
 	}
 	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // Chain is a concurrent-safe, append-only judgement hash chain. Events are
 // never mutated after Append; Verify re-derives every digest and every link.
 type Chain struct {
 	mu      sync.RWMutex
-	entries []domain.Event
+	entries []domain.Event // hot window; may be compacted
+	digests []chainDigest  // digest-only index of every event ever appended
+	base    uint64         // absolute index of entries[0]
+	retain  int            // hot window size; 0 keeps every event resident
+	fault   error          // sticky failure (e.g. unhashable event)
+	clock   func() time.Time
+}
+
+// chainDigest is the compact per-event record retained for evicted events:
+// enough to re-verify the index/link structure without holding the payload.
+type chainDigest struct {
+	Index    uint64
+	Hash     string
+	PrevHash string
 }
 
 // NewChain returns an empty chain anchored at GenesisPrevHash.
 func NewChain() *Chain { return &Chain{} }
+
+// WithRetention bounds how many recent events stay fully resident. Older
+// events keep their digest and linkage in a compact index, so ticket Verify
+// still detects reordering/relinking while memory stays bounded. 0 means
+// unlimited (pre-1.9.5 behaviour).
+func (c *Chain) WithRetention(n int) *Chain {
+	if n >= 0 {
+		c.retain = n
+	}
+	return c
+}
+
+// WithClock pins the default timestamp source used to stamp events that arrive
+// with a zero Timestamp. Without it the chain falls back to wall-clock time;
+// the orchestrator injects its configured clock here so an entire ledger,
+// including chain events, is reproducible.
+func (c *Chain) WithClock(f func() time.Time) *Chain {
+	if f != nil {
+		c.clock = f
+	}
+	return c
+}
+
+func (c *Chain) now() time.Time {
+	if c.clock != nil {
+		return c.clock().UTC()
+	}
+	return time.Now().UTC()
+}
 
 // Append stamps the event with its index, the previous entry's hash (or
 // GenesisPrevHash for the head), computes and stores the digest, and returns
@@ -82,40 +123,56 @@ func NewChain() *Chain { return &Chain{} }
 func (c *Chain) Append(ev domain.Event) domain.Event {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.fault != nil {
+		// Fail closed: a poisoned chain accepts nothing and Verify surfaces why.
+		return ev
+	}
 	if ev.Timestamp.IsZero() {
-		ev.Timestamp = time.Now().UTC()
+		ev.Timestamp = c.now()
 	} else {
 		ev.Timestamp = ev.Timestamp.UTC()
 	}
-	ev.Index = uint64(len(c.entries))
+	total := uint64(len(c.digests))
+	ev.Index = total
 	ev.PrevHash = GenesisPrevHash
-	if ev.Index > 0 {
-		ev.PrevHash = c.entries[len(c.entries)-1].Hash
+	if total > 0 {
+		ev.PrevHash = c.digests[total-1].Hash
 	}
-	ev.Hash = hashOf(ev)
+	hash, err := hashOf(ev)
+	if err != nil {
+		c.fault = err
+		return ev
+	}
+	ev.Hash = hash
+	c.digests = append(c.digests, chainDigest{Index: ev.Index, Hash: ev.Hash, PrevHash: ev.PrevHash})
 	c.entries = append(c.entries, ev)
+	if c.retain > 0 && len(c.entries) > c.retain {
+		drop := len(c.entries) - c.retain
+		c.entries = c.entries[drop:]
+		c.base += uint64(drop)
+	}
 	return ev
 }
 
-// Len returns the number of chained events.
+// Len returns the number of chained events (including compacted ones).
 func (c *Chain) Len() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return len(c.entries)
+	return len(c.digests)
 }
 
-// Get returns a copy of the event at index, and false when out of range.
+// Get returns a copy of the event at index when it is still resident, and
+// false when out of range or compacted away (digests remain verifiable).
 func (c *Chain) Get(index uint64) (domain.Event, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if int(index) >= len(c.entries) {
+	if index < c.base || index >= c.base+uint64(len(c.entries)) {
 		return domain.Event{}, false
 	}
-	return c.entries[index], true
+	return c.entries[index-c.base], true
 }
 
-// Entries returns detached copies of all events in chain order, suitable for
-// cross-node verification.
+// Entries returns detached copies of the resident events in chain order.
 func (c *Chain) Entries() []domain.Event {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -124,12 +181,40 @@ func (c *Chain) Entries() []domain.Event {
 	return out
 }
 
-// Verify re-computes every digest and re-checks every link, reporting the
-// offending index on the first mismatch. An empty chain verifies cleanly.
+// Verify re-checks every index/link from the compact digest index and
+// re-derives content digests for the resident window. Compacted events are
+// checked structurally; their payload digest is covered by the ledger's own
+// per-record verification on replay.
 func (c *Chain) Verify() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return VerifyEntries(c.entries)
+	if c.fault != nil {
+		return fmt.Errorf("audit: chain poisoned: %w", c.fault)
+	}
+	for i := range c.digests {
+		if c.digests[i].Index != uint64(i) {
+			return fmt.Errorf("audit: index %d out of order (got %d)", i, c.digests[i].Index)
+		}
+		wantPrev := GenesisPrevHash
+		if i > 0 {
+			wantPrev = c.digests[i-1].Hash
+		}
+		if c.digests[i].PrevHash != wantPrev {
+			return fmt.Errorf("audit: broken chain link at index %d: prevHash %q want %q",
+				i, c.digests[i].PrevHash, wantPrev)
+		}
+	}
+	for i, ev := range c.entries {
+		abs := c.base + uint64(i)
+		got, err := hashOf(ev)
+		if err != nil {
+			return err
+		}
+		if got != ev.Hash || abs >= uint64(len(c.digests)) || got != c.digests[abs].Hash {
+			return fmt.Errorf("audit: hash mismatch at index %d: stored %q recomputed %q", abs, ev.Hash, got)
+		}
+	}
+	return nil
 }
 
 // VerifyEntries is the stateless verification primitive: it validates a
@@ -138,7 +223,11 @@ func (c *Chain) Verify() error {
 // future cross-node checks do not need their own reimplementation.
 func VerifyEntries(entries []domain.Event) error {
 	for i, ev := range entries {
-		if got := hashOf(ev); got != ev.Hash {
+		got, err := hashOf(ev)
+		if err != nil {
+			return err
+		}
+		if got != ev.Hash {
 			return fmt.Errorf("audit: hash mismatch at index %d: stored %q recomputed %q", i, ev.Hash, got)
 		}
 		wantPrev := GenesisPrevHash

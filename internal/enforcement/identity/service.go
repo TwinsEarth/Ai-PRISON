@@ -83,6 +83,16 @@ func NewService(cfg Config) *Service {
 	return s
 }
 
+// WithClock pins the service's timestamp source. The orchestrator injects its
+// configured clock here so receipts and cut events become reproducible instead
+// of drifting with wall-clock time.
+func (s *Service) WithClock(f func() time.Time) *Service {
+	if f != nil {
+		s.now = f
+	}
+	return s
+}
+
 // RegisterAgent records an agent (its AgentCard and the three human parties)
 // and places it on the given node IDs. It does NOT revoke anything.
 func (s *Service) RegisterAgent(a domain.Agent, nodeIDs ...string) {

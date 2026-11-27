@@ -53,11 +53,28 @@ type Set struct {
 	order   uint64
 	records []*record
 	byID    map[string]*record
+	clock   func() time.Time
 }
 
 // NewSet returns an empty, ready-to-use revocation set.
 func NewSet() *Set {
 	return &Set{byID: make(map[string]*record)}
+}
+
+// WithClock pins the timestamp source used when an entry arrives without a
+// RevokedAt. Without it the set falls back to wall-clock time.
+func (s *Set) WithClock(f func() time.Time) *Set {
+	if f != nil {
+		s.clock = f
+	}
+	return s
+}
+
+func (s *Set) now() time.Time {
+	if s.clock != nil {
+		return s.clock().UTC()
+	}
+	return time.Now().UTC()
 }
 
 // Revoke writes entry into the revocation set. It is idempotent: a second
@@ -75,7 +92,7 @@ func (s *Set) Revoke(entry Entry, holdingNodes []string) Entry {
 		return existing.Entry
 	}
 	if entry.RevokedAt.IsZero() {
-		entry.RevokedAt = time.Now().UTC()
+		entry.RevokedAt = s.now()
 	}
 	req := make(map[string]struct{}, len(holdingNodes))
 	for _, n := range holdingNodes {

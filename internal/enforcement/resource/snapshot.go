@@ -37,11 +37,21 @@ func hashSnapshot(agentID string, sentenceID string, quota Quota, sealedAt time.
 type MemSnapshotStore struct {
 	mu    sync.Mutex
 	items map[string]Snapshot
+	clock func() time.Time
 }
 
 // NewMemSnapshotStore returns an empty snapshot store.
 func NewMemSnapshotStore() *MemSnapshotStore {
 	return &MemSnapshotStore{items: make(map[string]Snapshot)}
+}
+
+// WithClock pins the timestamp source used when a snapshot arrives without a
+// SealedAt. Without it the store falls back to wall-clock time.
+func (s *MemSnapshotStore) WithClock(f func() time.Time) *MemSnapshotStore {
+	if f != nil {
+		s.clock = f
+	}
+	return s
 }
 
 // Seal stores s. A zero ContentHash is computed from the snapshot's canonical
@@ -60,7 +70,11 @@ func (s *MemSnapshotStore) Seal(snap Snapshot) (Snapshot, error) {
 		return existing, nil
 	}
 	if snap.SealedAt.IsZero() {
-		snap.SealedAt = time.Now().UTC()
+		if s.clock != nil {
+			snap.SealedAt = s.clock().UTC()
+		} else {
+			snap.SealedAt = time.Now().UTC()
+		}
 	}
 	if snap.ContentHash == "" {
 		snap.ContentHash = hashSnapshot(string(snap.AgentID), snap.SentenceID, snap.Quota, snap.SealedAt)

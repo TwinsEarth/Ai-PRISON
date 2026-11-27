@@ -46,7 +46,10 @@ func (m *MemoryStore) Append(ctx context.Context, kind string, payload any) (Rec
 	if seq > 0 {
 		prev = m.records[seq-1].Hash
 	}
-	rec := storeRecord(seq, prev, kind, m.clock(), raw)
+	rec, err := storeRecord(seq, prev, kind, m.clock(), raw)
+	if err != nil {
+		return Record{}, err
+	}
 	m.records = append(m.records, rec)
 	return rec, nil
 }
@@ -97,7 +100,12 @@ func Verify(records []Record) error {
 			return &IntegrityError{Kind: KindBadLink, Seq: rec.Seq, Line: i + 1,
 				Detail: "previous-hash link does not match"}
 		}
-		if got := hashRecord(rec.Seq, rec.Kind, rec.At, rec.PrevHash, rec.Payload); got != rec.Hash {
+		got, err := hashRecord(rec.Seq, rec.Kind, rec.At, rec.PrevHash, rec.Payload)
+		if err != nil {
+			return &IntegrityError{Kind: KindCorrupt, Seq: rec.Seq, Line: i + 1,
+				Detail: "record cannot be hashed: " + err.Error()}
+		}
+		if got != rec.Hash {
 			return &IntegrityError{Kind: KindBadHash, Seq: rec.Seq, Line: i + 1,
 				Detail: "content digest mismatch"}
 		}

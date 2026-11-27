@@ -33,7 +33,6 @@ import (
 	"github.com/ai-prison/ai-prison/internal/enforcement/resource"
 	"github.com/ai-prison/ai-prison/internal/governance"
 	"github.com/ai-prison/ai-prison/internal/revocation"
-	"github.com/ai-prison/ai-prison/internal/store"
 	"github.com/ai-prison/ai-prison/pkg/contracts"
 )
 
@@ -46,13 +45,6 @@ var DefaultClock = func() time.Time {
 
 // custodianSet is the fixed simulated multi-party custody roster for L5.
 var custodianSet = []string{"court", "escrow", "trustee"}
-
-// custodyThreshold is M in the simulated M-of-N snapshot custody (N=3).
-const custodyThreshold = 2
-
-// monitorFreezeThreshold is the cumulative signal severity at which the
-// behaviour monitor freezes an agent mid-anomaly.
-const monitorFreezeThreshold = 10
 
 // isoGate adapts the isolation Controller to the capability package's
 // IsolationGate: a blockade may run only when the agent already lives inside a
@@ -101,13 +93,10 @@ type System struct {
 
 	// Fixed clock + runtime bookkeeping owned by the orchestrator.
 	clock func() time.Time
-	// freezeHooks records, per agent, the total observed-signal count at the
-	// moment the monitor froze it (mid-anomaly freeze evidence).
-	freezeHooks map[domain.AgentID]int
-	// runtimeStatus mirrors the simulated runtime lifecycle of an agent after
-	// enforcement / restoration (the layer packages do not all expose a generic
-	// status setter; the orchestrator owns this read-side projection).
-	runtimeStatus map[domain.AgentID]domain.AgentStatus
+	// state guards the mutable runtime projections (status, reputation,
+	// freeze evidence, agent projection, counters). Never touch those maps
+	// directly: use the sysState helpers so concurrent drivers stay race-free.
+	state *sysState
 
 	// --- durable-ledger wiring (v1.1); all nil/empty when Store == nil --------
 	// recorder is nil in the default in-memory mode: nothing below compiles in
@@ -115,44 +104,28 @@ type System struct {
 	recorder *ledgerRecorder
 	// restored is true once an existing ledger was replayed during NewSystem.
 	restored bool
-	// agentReputation mirrors the per-agent reputation score used in the
-	// runtime-status projection.
-	agentReputation map[domain.AgentID]int
-	// proj is the read-side agent projection: maintained live when running,
-	// rebuilt from the ledger on restart. InspectView reads it.
-	proj map[domain.AgentID]*RestoredAgent
-	// caseCount counts adjudicated cases (incremented live; rebuilt on replay).
-	caseCount int
-	// sentenceCount counts issued sentences (incremented live; rebuilt on replay).
-	sentenceCount int
 	// BootstrapErr sticks a replay failure (an open FileStore already verified
 	// the record chain; a non-nil value here means a payload-decode bug).
 	BootstrapErr error
+	// cfg is the resolved configuration this System was built with: quota,
+	// custody threshold, freeze threshold and the committee roster are owned by
+	// the orchestrator and read from here (never from package constants).
+	cfg Config
 }
 
-// Config builds a System; zero value means "sensible deterministic in-memory
-// defaults", which is the only configuration this prototype supports.
-type Config struct {
-	// Clock overrides the fixed clock; nil uses DefaultClock.
-	Clock func() time.Time
-	// Store, when non-nil, enables real crash-safe persistence of the
-	// governance/audit record (see persist.go). nil keeps the v1.0 pure-memory
-	// behaviour, output and tests unchanged.
-	Store store.Store
-}
+// Config builds a System; see config.go for the fields and their safety bounds.
+// The zero value means "sensible deterministic in-memory defaults".
 
 // NewSystem assembles every layer with the real in-memory implementations and
 // the real adapters, so all events land on one audit.Chain and all revocations
 // land on one revocation.Set.
 func NewSystem(cfg Config) *System {
+	cfg = cfg.Resolve()
 	clock := cfg.Clock
-	if clock == nil {
-		clock = DefaultClock
-	}
 
-	chain := audit.NewChain()
-	book := audit.NewReceiptBook()
-	set := revocation.NewSet()
+	chain := audit.NewChain().WithClock(cfg.Clock).WithRetention(cfg.RetainEvents)
+	book := audit.NewReceiptBook().WithClock(cfg.Clock)
+	set := revocation.NewSet().WithClock(cfg.Clock)
 
 	// When a ledger is wired, every layer receives a recording sink that mirrors
 	// stamped chain events onto the ledger; otherwise the v1.0 plain adapters
@@ -164,7 +137,7 @@ func NewSystem(cfg Config) *System {
 	sp := recordingSink{chain: chain, rec: rec, clock: clock}
 
 	// Resource layer.
-	resSnaps := resource.NewMemSnapshotStore()
+	resSnaps := resource.NewMemSnapshotStore().WithClock(cfg.Clock)
 	resBackend := resource.NewInMemoryBackend(set)
 	resEvents := resource.EventSink(resource.NewChainSink(chain))
 	if rec != nil {
@@ -185,7 +158,7 @@ func NewSystem(cfg Config) *System {
 	if rec != nil {
 		isoSink = sp
 	}
-	isoCtrl := isolation.NewController(gradient, isoSink)
+	isoCtrl := isolation.NewController(gradient, isoSink).WithClock(clock)
 
 	// Identity & communication layer.
 	topo := identity.NewInMemoryTopology()
@@ -198,7 +171,7 @@ func NewSystem(cfg Config) *System {
 		Revocations: identity.NewRevocationSink(set),
 		Events:      idEvents,
 		Receipts:    identity.NewReceiptController(book),
-	})
+	}).WithClock(clock)
 
 	// Migration-suppression layer (shared in-memory subsystems, inspected later).
 	migEvents := migration.EventSink(migration.NewChainSink(chain))
@@ -210,11 +183,12 @@ func NewSystem(cfg Config) *System {
 		migCustodySink = sp
 	}
 	migSvc := migration.NewService(migration.Config{
-		Binder:  migration.NewMemHardwareBinder(),
+		Binder:  migration.NewMemHardwareBinder().WithClock(clock),
 		Records: migration.NewMemRecordKeeper(),
-		Custody: migration.NewMemCustodyStore(migCustodySink),
+		Custody: migration.NewMemCustodyStore(migCustodySink).WithClock(clock),
 		Events:  migEvents,
 	})
+	migSvc.Now = clock
 
 	// Capability-blockade layer, gated on the real isolation controller.
 	capEvents := capability.EventSink(capability.NewChainSink(chain))
@@ -225,6 +199,7 @@ func NewSystem(cfg Config) *System {
 		Gate:   isoGate{ctrl: isoCtrl},
 		Events: capEvents,
 	})
+	capSvc.Now = clock
 
 	// Governance layer. Principals are registered explicitly via Gov.RegisterAgent.
 	govEvents := governance.EventSink(governance.NewEventSink(chain))
@@ -232,39 +207,39 @@ func NewSystem(cfg Config) *System {
 		govEvents = sp
 	}
 	govSvc := governance.New(governance.Config{
-		Events: govEvents,
-		Now:    clock,
+		Events:        govEvents,
+		Now:           clock,
+		CharterSeats:  cfg.CharterSeats,
+		CharterReason: cfg.CharterReason,
 	})
 
-	sys := &System{
-		Chain:           chain,
-		Book:            book,
-		Set:             set,
-		Resource:        resEngine,
-		ResBackend:      resBackend,
-		ResSnaps:        resSnaps,
-		Gradient:        gradient,
-		Iso:             isoCtrl,
-		Identity:        idSvc,
-		Topology:        topo,
-		Migration:       migSvc,
-		Capability:      capSvc,
-		Gov:             govSvc,
-		clock:           clock,
-		freezeHooks:     make(map[domain.AgentID]int),
-		runtimeStatus:   make(map[domain.AgentID]domain.AgentStatus),
-		recorder:        rec,
-		agentReputation: make(map[domain.AgentID]int),
-		proj:            make(map[domain.AgentID]*RestoredAgent),
-	}
+		sys := &System{
+			Chain:           chain,
+			Book:            book,
+			Set:             set,
+			Resource:        resEngine,
+			ResBackend:      resBackend,
+			ResSnaps:        resSnaps,
+			Gradient:        gradient,
+			Iso:             isoCtrl,
+			Identity:        idSvc,
+			Topology:        topo,
+			Migration:       migSvc,
+			Capability:      capSvc,
+			Gov:             govSvc,
+			clock:           clock,
+			state:           newSysState(),
+			recorder:        rec,
+			cfg:             cfg,
+		}
 	// Behaviour monitor: freeze mid-anomaly, record the ordinal it fired at.
 	monSink := isolation.EventSink(chainSink{chain: chain})
 	if rec != nil {
 		monSink = sp
 	}
-	sys.Monitor = isolation.NewMonitor(monitorFreezeThreshold,
+	sys.Monitor = isolation.NewMonitor(cfg.MonitorThreshold,
 		func(agent domain.AgentID, _ isolation.Signal) {
-			sys.freezeHooks[agent] = sys.Monitor.TotalObserved()
+			sys.state.markFrozen(agent, sys.Monitor.TotalObserved())
 		},
 		monSink)
 
@@ -284,7 +259,7 @@ func (sys *System) Clock() time.Time { return sys.clock().UTC() }
 
 // RuntimeStatus returns the orchestrator's simulated runtime status projection.
 func (sys *System) RuntimeStatus(a domain.AgentID) domain.AgentStatus {
-	return sys.runtimeStatus[a]
+	return sys.state.statusOf(a)
 }
 
 // resourceCredID is the deterministic resource-credential handle per agent.
@@ -294,15 +269,18 @@ func resourceCredID(a domain.AgentID) string { return "cred:resource:" + string(
 // (hardware-bound by migration suppression at L3+).
 func capCredID(a domain.AgentID) string { return "cred:capability:" + string(a) }
 
-// baseQuota is the simulated pre-sentence quota the agent runs on.
-func baseQuota(a domain.AgentID) resource.Quota {
+// baseQuota is the simulated pre-sentence quota the agent runs on. It is built
+// from the resolved config so an operator can size the sandbox (cpuMillis /
+// memoryBytes / storageBytes / networkOpen) without editing Go source.
+func (sys *System) baseQuota(a domain.AgentID) resource.Quota {
+	q := *sys.cfg.Quota
 	return resource.Quota{
 		AgentID:      a,
 		CredentialID: resourceCredID(a),
-		CPUMillis:    1000,
-		MemoryBytes:  4 << 30,
-		StorageBytes: 10 << 30,
-		NetworkOpen:  true,
+		CPUMillis:    q.CPUMillis,
+		MemoryBytes:  q.MemoryBytes,
+		StorageBytes: q.StorageBytes,
+		NetworkOpen:  q.NetworkOpen,
 	}
 }
 

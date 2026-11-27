@@ -33,6 +33,14 @@ func NewMemHardwareBinder() *MemHardwareBinder {
 	return &MemHardwareBinder{bounds: make(map[string]boundCred), now: time.Now}
 }
 
+// WithClock pins the binder's bound-at timestamps so the ledger is reproducible.
+func (b *MemHardwareBinder) WithClock(f func() time.Time) *MemHardwareBinder {
+	if f != nil {
+		b.now = f
+	}
+	return b
+}
+
 // Bind attaches credID to the single fingerprint it may verify on. Binding the
 // same credential again to the same fingerprint is an idempotent no-op;
 // re-binding to a DIFFERENT fingerprint is an error (a bound credential must

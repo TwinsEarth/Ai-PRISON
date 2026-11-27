@@ -1,7 +1,7 @@
 {
   "name": "@twinsearth/ai-prison-dsh-plugin",
-  "version": "1.9.3",
-  "description": "AI Prison for DSH: eight governance tools wrapping the aiprison CLI (levels, status, watchdog status, demo, drill, inspect, verify, repair-tail) plus a panel for the L0–L5 matrix and the audit-chain state. The CLI ships bundled for Windows, macOS and Linux; every capability-removal backend stays simulated.",
+  "version": "1.9.4",
+  "description": "AI Prison for DSH: nine governance tools wrapping the aiprison CLI (levels, status, watchdog status, demo, drill, inspect, verify, repair-tail, watchdog bridge) plus a panel for the L0–L5 matrix and the audit-chain state. The CLI ships bundled for Windows, macOS and Linux; every capability-removal backend stays simulated.",
   "type": "module",
   "main": "index.js",
   "license": "MIT",
@@ -57,6 +57,7 @@
     "scripts/aiprison-supervise.mjs"
   ],
   "scripts": {
+    "pretest": "node scripts/ensure-bin.mjs",
     "test": "node --test test/*.test.mjs",
     "coverage": "node --test --experimental-test-coverage --test-coverage-lines=70 --test-coverage-branches=65 --test-coverage-functions=75 test/*.test.mjs",
     "check": "node scripts/release-check.mjs",

@@ -66,7 +66,9 @@ function main() {
   const built = process.env.AIPRISON_BUILD_TIME || buildTime()
   const ldflags = `-s -w -X main.version=${version} -X main.commit=${commit} -X main.buildTime=${built}`
 
+  const only = process.env.AIPRISON_ONLY_TARGET
   for (const target of TARGETS) {
+    if (only && target.dir !== only) continue
     const outDir = path.join(pluginRoot, 'bin', target.dir)
     mkdirSync(outDir, { recursive: true })
     const outFile = path.join(outDir, target.exe)

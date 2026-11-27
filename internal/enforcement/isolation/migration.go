@@ -50,6 +50,15 @@ func NewController(gradient *Gradient, events EventSink) *Controller {
 	}
 }
 
+// WithClock pins the controller's established-at timestamps so a configured
+// clock keeps the whole ledger reproducible.
+func (c *Controller) WithClock(f func() time.Time) *Controller {
+	if f != nil {
+		c.now = f
+	}
+	return c
+}
+
 // Establish provisions a new instance for the agent at the level's recommended
 // backend. The OLD instance stays live until the caller calls ConfirmReady on
 // the new one. Returns the new, not-yet-ready instance.

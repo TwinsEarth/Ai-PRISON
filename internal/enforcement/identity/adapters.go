@@ -21,13 +21,14 @@ type setSink struct{ set *revocation.Set }
 func NewRevocationSink(set *revocation.Set) RevocationSink { return setSink{set: set} }
 
 func (s setSink) RevokeCredential(id string, kind domain.CredentialKind, agentID domain.AgentID, sentenceID, reason string, holdingNodes []string) {
+	// RevokedAt is deliberately left zero: the revocation set stamps it from
+	// its configured clock, so credential revocations are reproducible too.
 	s.set.Revoke(revocation.Entry{
 		ID:         id,
 		AgentID:    agentID,
 		Kind:       kind,
 		SentenceID: sentenceID,
 		Reason:     reason,
-		RevokedAt:  time.Now().UTC(),
 	}, holdingNodes)
 }
 

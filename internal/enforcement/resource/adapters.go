@@ -1,8 +1,6 @@
 package resource
 
 import (
-	"time"
-
 	"github.com/ai-prison/ai-prison/internal/audit"
 	"github.com/ai-prison/ai-prison/internal/domain"
 	"github.com/ai-prison/ai-prison/internal/revocation"
@@ -20,13 +18,14 @@ type setSink struct{ set *revocation.Set }
 func NewRevocationSetSink(set *revocation.Set) RevocationSink { return setSink{set: set} }
 
 func (s setSink) RevokeResource(id string, agentID domain.AgentID, sentenceID, reason string, holdingNodes []string) {
+	// RevokedAt is left zero on purpose: the revocation set stamps it from its
+	// configured clock, keeping the whole ledger reproducible.
 	s.set.Revoke(revocation.Entry{
 		ID:         id,
 		AgentID:    agentID,
 		Kind:       domain.CredentialResource,
 		SentenceID: sentenceID,
 		Reason:     reason,
-		RevokedAt:  time.Now().UTC(),
 	}, holdingNodes)
 }
 

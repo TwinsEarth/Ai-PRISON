@@ -40,11 +40,28 @@ type ReceiptBook struct {
 	mu       sync.RWMutex
 	order    []string
 	receipts map[string]*domain.Receipt
+	clock    func() time.Time
 }
 
 // NewReceiptBook returns an empty receipt book.
 func NewReceiptBook() *ReceiptBook {
 	return &ReceiptBook{receipts: make(map[string]*domain.Receipt)}
+}
+
+// WithClock pins the timestamp source used when a receipt arrives without an
+// issuedAt. Without it the book falls back to wall-clock time.
+func (b *ReceiptBook) WithClock(f func() time.Time) *ReceiptBook {
+	if f != nil {
+		b.clock = f
+	}
+	return b
+}
+
+func (b *ReceiptBook) now() time.Time {
+	if b.clock != nil {
+		return b.clock().UTC()
+	}
+	return time.Now().UTC()
 }
 
 // RegisterPending records a receipt that has been broadcast to a holding node
@@ -58,7 +75,7 @@ func (b *ReceiptBook) RegisterPending(r domain.Receipt) domain.Receipt {
 	}
 	r.Status = domain.ReceiptPending
 	if r.IssuedAt.IsZero() {
-		r.IssuedAt = time.Now().UTC()
+		r.IssuedAt = b.now()
 	}
 	cp := r
 	b.receipts[r.ID] = &cp

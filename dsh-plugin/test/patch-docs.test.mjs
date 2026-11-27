@@ -49,27 +49,27 @@ test('the loader comment and README describe the enforce-first behavior', () => 
   assert.match(readme, /config\.enforce: false/)
 })
 
-test('README, package metadata, locale and market agree on the eight-tool surface', () => {
+test('README, package metadata, locale and market agree on the nine-tool surface', () => {
   const toolsSource = fs.readFileSync(path.join(root, 'lib', 'tools.js'), 'utf8')
   const registered = [...new Set([...toolsSource.matchAll(/name: '(ai_prison_[a-z_]+)'/g)].map((match) => match[1]))].sort()
-  assert.equal(registered.length, 8, `tools.js registers ${registered.length} tools`)
+  assert.equal(registered.length, 9, `tools.js registers ${registered.length} tools`)
 
   const documented = [...new Set([...readme.matchAll(/\| `(ai_prison_[a-z_]+)` \|/g)].map((match) => match[1]))].sort()
   assert.deepEqual(documented, registered, 'the README tool table lists every registered tool')
-  assert.match(readme, /eight `ai_prison_\*` tools/)
-  assert.match(readme, /the eight tools become visible/)
+  assert.match(readme, /nine `ai_prison_\*` tools/)
+  assert.match(readme, /the nine tools become visible/)
   assert.doesNotMatch(readme, /six `ai_prison_\*` tools|the six tools become visible/)
 
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
-  assert.match(pkg.description, /eight governance tools/)
+  assert.match(pkg.description, /nine governance tools/)
 
   const en = JSON.parse(fs.readFileSync(path.join(root, 'locale', 'en.json'), 'utf8'))
   const zh = JSON.parse(fs.readFileSync(path.join(root, 'locale', 'zh.json'), 'utf8'))
   for (const description of [en.meta.description, zh.meta.description]) {
     assert.match(description, /watchdog status/)
   }
-  assert.match(en.meta.description, /eight DSH tools/)
-  assert.match(zh.meta.description, /八个 DSH 工具/)
+  assert.match(en.meta.description, /nine DSH tools/)
+  assert.match(zh.meta.description, /九个 DSH 工具/)
 
   const market = JSON.parse(fs.readFileSync(path.join(root, 'market', 'index.json'), 'utf8'))
   const entry = market.plugins.find((plugin) => plugin.name === pkg.name)

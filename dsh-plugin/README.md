@@ -2,7 +2,7 @@
 
 AI Prison for DSH — the defensive agent-governance prototype of
 [Ai-PRISON](https://github.com/TwinsEarth/Ai-PRISON), exposed as a DeepSeek
-Harness bundle: eight `ai_prison_*` tools plus a sidebar panel that renders the
+Harness bundle: nine `ai_prison_*` tools plus a sidebar panel that renders the
 L0–L5 grading matrix and the durable ledger's audit-chain state.
 
 Everything here is **defensive**: detection, graduated capability deprivation,
@@ -18,7 +18,7 @@ MicroVM isolation are **simulated backends**, not shipped controls.
   absolute package directory to the plugin manager).
 
 After enabling the bundle, a shield entry appears in the sidebar. Open it for the
-panel; the eight tools become visible to the Agent on the next session step.
+panel; the nine tools become visible to the Agent on the next session step.
 
 ## Tools
 
@@ -27,6 +27,7 @@ panel; the eight tools become visible to the Agent on the next session step.
 | `ai_prison_levels` | read-only | Print the L0–L5 matrix (codes, names, duration class, deprived capabilities). |
 | `ai_prison_status` | read-only | CLI path/source/version, the matrix, and the ledger's integrity + record count. Same data as the panel. |
 | `ai_prison_watchdog_status` | read-only | Watchdog snapshot: memory waterline/thresholds, hot-operation Top5, quarantined plugins, crash plans, budgets, incidents. Same data as the Enforcement cards. |
+| `ai_prison_watchdog_bridge` | writes ledger | Incrementally ingest watchdog `incidents.jsonl` as `watchdog.incident` records, then return merged metrics (ledger records/hot window/kind counts + watchdog offset/pending bytes). Idempotent via a persisted byte offset; requires `confirm: true`. |
 | `ai_prison_demo` | writes ledger | End-to-end governance demo: detect → seven-stage adjudication → layered enforcement → audit → appeal/rehabilitation → recovery. |
 | `ai_prison_drill` | writes ledger | v1.0.0 recovery drill over the reversibility matrix with per-assertion PASS/FAIL and an overall verdict. |
 | `ai_prison_inspect` | read-only | Replay the ledger: hash chain, agents, sentences, revocations, receipts, sealed snapshots. |

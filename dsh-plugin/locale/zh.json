@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "AI Prison · AI 监狱",
-    "description": "把 aiprison CLI 封装为八个 DSH 工具（levels、status、watchdog status、demo、drill、inspect、verify、repair-tail），并在侧边栏增加一个面板：展示 L0–L5 分级矩阵，以及落盘账本的审计链完整性与记录数。从侧边栏的盾牌入口打开；面板只读，不会写入数据目录。账本默认写到 <会话工作目录>/.ai-prison，也可在配置里指定数据目录。GRAM、TLM、硬件绑定、MicroVM 隔离等能力摘除后端全部为内存模拟 —— 这些工具用于审计与演示治理流程，并不执行真实隔离。",
+    "description": "把 aiprison CLI 封装为九个 DSH 工具（levels、status、watchdog status、demo、drill、inspect、verify、repair-tail、watchdog bridge），并在侧边栏增加一个面板：展示 L0–L5 分级矩阵，以及落盘账本的审计链完整性与记录数。从侧边栏的盾牌入口打开；面板只读，不会写入数据目录。账本默认写到 <会话工作目录>/.ai-prison，也可在配置里指定数据目录。GRAM、TLM、硬件绑定、MicroVM 隔离等能力摘除后端全部为内存模拟 —— 这些工具用于审计与演示治理流程，并不执行真实隔离。",
     "detail": "docs/DETAIL.zh.md"
   }
 }

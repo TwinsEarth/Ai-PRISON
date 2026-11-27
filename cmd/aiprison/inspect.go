@@ -62,8 +62,8 @@ func runInspect(dataDir string) {
 	}
 }
 
-// runVerify only integrity-checks the ledger: INTEGRITY OK + exit 0 on a
-// healthy chain, otherwise locate the fault and exit 1.
+// runVerify only integrity-checks the ledger: INTEGRITY OK on a healthy chain,
+// otherwise locate the fault and exit 1.
 func runVerify(dataDir string) {
 	if dataDir == "" {
 		fmt.Fprintln(os.Stderr, "verify: --data-dir is required")
@@ -77,7 +77,6 @@ func runVerify(dataDir string) {
 	n := ro.Len()
 	_ = ro.Close()
 	fmt.Printf("INTEGRITY OK — %d records, per-record hash chain verified\n", n)
-	os.Exit(0)
 }
 
 // runRepairTail only truncates a genuine torn (incomplete) tail line; it

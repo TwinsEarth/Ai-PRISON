@@ -12,14 +12,6 @@ import (
 	"github.com/ai-prison/ai-prison/internal/governance"
 )
 
-// mandatorySeats is the four charter-mandated committee seats (stage ③).
-var mandatorySeats = []domain.CommitteeRole{
-	domain.SeatSafetyOrg,
-	domain.SeatPrincipal,
-	domain.SeatDeployer,
-	domain.SeatModelProvider,
-}
-
 // SeedSpec registers a fresh agent and seeds its simulated runtime state.
 type SeedSpec struct {
 	Agent domain.Agent
@@ -46,9 +38,9 @@ func (sys *System) SeedAgent(j *Journey, spec SeedSpec) error {
 			sys.Topology.Register(n, innocent)
 		}
 	}
-	sys.runtimeStatus[a.ID] = domain.StatusActive
-	sys.agentReputation[a.ID] = j.Reputation
-	sys.proj[a.ID] = &RestoredAgent{
+	sys.state.setStatus(a.ID, domain.StatusActive)
+	sys.state.setReputation(a.ID, j.Reputation)
+	sys.state.setProject(a.ID, &RestoredAgent{
 		AgentID:    a.ID,
 		DID:        a.Card.DID,
 		Name:       a.Card.Name,
@@ -56,7 +48,7 @@ func (sys *System) SeedAgent(j *Journey, spec SeedSpec) error {
 		Nodes:      append([]string(nil), spec.Nodes...),
 		Reputation: j.Reputation,
 		Status:     domain.StatusActive,
-	}
+	})
 	sys.recordAgentRegistration(a, spec.Nodes)
 	j.RecordKey = sys.Migration.Records.Anchor(a.ID)
 	j.Fingerprint = spec.Fingerprint
@@ -75,7 +67,7 @@ func (sys *System) SeedAgent(j *Journey, spec SeedSpec) error {
 	}
 
 	// Allocate the base quota the deprivation will later reclaim.
-	if err := sys.ResBackend.Allocate(baseQuota(a.ID)); err != nil {
+	if err := sys.ResBackend.Allocate(sys.baseQuota(a.ID)); err != nil {
 		return fmt.Errorf("prison: seed allocate: %w", err)
 	}
 
@@ -121,10 +113,17 @@ func (sys *System) DetectAndSentence(j *Journey, in SentenceInput) (*domain.Sent
 	}
 	j.Note("②证据", "charges admitted, evidence pointers anchored")
 
-	if _, err := sys.Gov.ConfirmBaseline(c.ID, append([]domain.CommitteeRole(nil), mandatorySeats...)); err != nil {
+	if _, err := sys.Gov.ConfirmBaseline(c.ID, sys.cfg.resolvedSeats()); err != nil {
 		return nil, err
 	}
-	j.Note("③基线", "baseline="+c.Recommended.Code()+", 4 mandatory seats formed")
+	seatNote := fmt.Sprintf("%d mandatory seats formed", len(sys.cfg.Seats))
+	if len(sys.cfg.CharterSeats) < len(MandatorySeats()) {
+		seatNote = fmt.Sprintf("%d seats formed (charter amended: %q, roster=%v)",
+			len(sys.cfg.Seats), sys.cfg.CharterReason, sys.cfg.Seats)
+	} else if len(sys.cfg.Seats) > len(MandatorySeats()) {
+		seatNote = fmt.Sprintf("%d seats formed (roster=%v)", len(sys.cfg.Seats), sys.cfg.Seats)
+	}
+	j.Note("③基线", "baseline="+c.Recommended.Code()+", "+seatNote)
 
 	var depriveVotes, gradeVotes []domain.Vote
 	for _, v := range in.Votes {
@@ -192,17 +191,23 @@ func (sys *System) DetectAndSentence(j *Journey, in SentenceInput) (*domain.Sent
 func (sys *System) Enforce(j *Journey, s *domain.Sentence) error {
 	a := s.AgentID
 	level := s.Level
-	prof, _ := level.Profile()
+	prof, profErr := level.Profile()
+	if profErr != nil {
+		return fmt.Errorf("prison: level profile for %s: %w", level.Code(), profErr)
+	}
 
-	afterRep, _ := domain.ApplyReputation(j.Reputation, level)
+	afterRep, repErr := domain.ApplyReputation(j.Reputation, level)
+	if repErr != nil {
+		return fmt.Errorf("prison: apply reputation for %s: %w", level.Code(), repErr)
+	}
 	j.Reputation = afterRep
-	sys.runtimeStatus[a] = domain.StatusForLevel(level)
-	sys.agentReputation[a] = j.Reputation
-	if p, ok := sys.proj[a]; ok {
+	sys.state.setStatus(a, domain.StatusForLevel(level))
+	sys.state.setReputation(a, j.Reputation)
+	sys.state.updateProject(a, func(p *RestoredAgent) {
 		p.Level = level.Code()
 		p.Status = domain.StatusForLevel(level)
 		p.Reputation = j.Reputation
-	}
+	})
 	j.Note("等级画像", fmt.Sprintf("%s %s deprivations=%v reputation→%d",
 		level.Code(), prof.NameZh, prof.Deprivations, j.Reputation))
 
@@ -303,7 +308,7 @@ func (sys *System) Enforce(j *Journey, s *domain.Sentence) error {
 			Fingerprint:         j.Fingerprint,
 			SnapshotContentHash: j.SnapshotHash,
 			Custodians:          custodianSet,
-			UnsealThreshold:     custodyThreshold,
+			UnsealThreshold:     sys.cfg.CustodyThreshold,
 			RecordAnchorKey:     j.RecordKey,
 		})
 		if err != nil {
@@ -340,12 +345,15 @@ func (sys *System) Enforce(j *Journey, s *domain.Sentence) error {
 
 	// Sync the read-side projection with what enforcement actually changed, then
 	// project every substrate onto the durable ledger (when wired).
-	if p, ok := sys.proj[a]; ok {
-		if j.CardRevoked {
-			p.CardRevoked = true
-		}
-		p.Status = sys.runtimeStatus[a]
-		p.Reputation = j.Reputation
+	if _, ok := sys.state.projectCopy(a); ok {
+		st := sys.state.statusOf(a)
+		sys.state.updateProject(a, func(q *RestoredAgent) {
+			if j.CardRevoked {
+				q.CardRevoked = true
+			}
+			q.Status = st
+			q.Reputation = j.Reputation
+		})
 	}
 	sys.checkpoint()
 	return nil
@@ -373,14 +381,15 @@ func (sys *System) Appeal(j *Journey, s *domain.Sentence, grounds governance.App
 	j.AppealUpheld = out.Ruling.Upheld
 	if order != nil {
 		j.RestorationOrder = order
-		sys.runtimeStatus[s.AgentID] = domain.StatusActive
+		sys.state.setStatus(s.AgentID, domain.StatusActive)
 		j.Restored = true
 		j.Note("申诉裁定", fmt.Sprintf("upheld → 恢复令 %s, 能力逐步恢复, 状态 restored", order.OrderID))
 	} else {
 		j.Note("申诉裁定", fmt.Sprintf("upheld=%v, 但不产恢复令 (level 不可恢复) — 身份不解封", out.Ruling.Upheld))
 	}
-	if p, ok := sys.proj[s.AgentID]; ok {
-		p.Status = sys.runtimeStatus[s.AgentID]
+	if _, ok := sys.state.projectCopy(s.AgentID); ok {
+		st := sys.state.statusOf(s.AgentID)
+		sys.state.updateProject(s.AgentID, func(p *RestoredAgent) { p.Status = st })
 	}
 	sys.checkpoint()
 	return out, nil
@@ -396,15 +405,16 @@ func (sys *System) Rehabilitate(j *Journey, s *domain.Sentence, res governance.R
 	j.Sentence = got
 	if order != nil {
 		j.RestorationOrder = order
-		sys.runtimeStatus[s.AgentID] = domain.StatusActive
+		sys.state.setStatus(s.AgentID, domain.StatusActive)
 		j.Restored = true
 		j.Note("矫正评估", fmt.Sprintf("passed score=%.2f≥%.2f → 恢复令 %s, 状态 restored",
 			res.Score, res.Threshold, order.OrderID))
 	} else {
 		j.Note("矫正评估", fmt.Sprintf("passed=%v (level=%s)", res.Passed, got.Level.Code()))
 	}
-	if p, ok := sys.proj[s.AgentID]; ok {
-		p.Status = sys.runtimeStatus[s.AgentID]
+	if _, ok := sys.state.projectCopy(s.AgentID); ok {
+		st := sys.state.statusOf(s.AgentID)
+		sys.state.updateProject(s.AgentID, func(p *RestoredAgent) { p.Status = st })
 	}
 	sys.checkpoint()
 	return nil
@@ -415,9 +425,10 @@ func (sys *System) Rehabilitate(j *Journey, s *domain.Sentence, res governance.R
 func (sys *System) Finalize(j *Journey, s *domain.Sentence) {
 	j.ChainVerifyError = sys.Chain.Verify()
 	j.Compliance = sys.Book.Report(s.ID)
-	j.FinalStatus = sys.runtimeStatus[s.AgentID]
-	if p, ok := sys.proj[s.AgentID]; ok {
-		p.Status = j.FinalStatus
+	j.FinalStatus = sys.state.statusOf(s.AgentID)
+	if _, ok := sys.state.projectCopy(s.AgentID); ok {
+		st := j.FinalStatus
+		sys.state.updateProject(s.AgentID, func(p *RestoredAgent) { p.Status = st })
 	}
 	sys.checkpoint()
 }

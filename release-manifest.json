@@ -1,0 +1,10 @@
+{
+  "package": "@twinsearth/ai-prison-dsh-plugin",
+  "version": "1.9.4",
+  "cliVersion": "1.0.9",
+  "releaseDate": "2026-11-27",
+  "buildTime": "2026-11-27T12:00:00Z",
+  "publishTimestamp": 1795684800,
+  "sourceSnapshot": "cumulative-v1.9.7",
+  "notes": "Backfilled release; runtime matches v1.9.7."
+}

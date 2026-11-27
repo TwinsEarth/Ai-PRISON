@@ -35,12 +35,22 @@ type Options struct {
 	Clock func() time.Time
 	// FileMode is the mode for segment files; zero uses 0600.
 	FileMode os.FileMode
+	// RetainSegments caps how many published segments stay resident in memory
+	// (hot window). 0 means "keep everything" (1.9.4 behaviour). Older segments
+	// are still on disk and are streamed back by Replay, so the hot window is
+	// an acceleration cache, not the source of truth.
+	RetainSegments int
 }
+
+// DefaultRetainSegments is the production default: a bounded hot window instead
+// of an ever-growing in-memory copy of the whole ledger.
+const DefaultRetainSegments = 8
 
 // FileStore is the real on-disk append-only JSONL ledger. Records are grouped
 // into immutable segment files that are written through a temp file and
-// atomically renamed. The full ledger is held in memory for replay while the
-// on-disk segments remain the durable source of truth.
+// atomically renamed. Only the hot window (RetainSegments) stays in memory;
+// older published segments live on disk and Replay streams them back, so the
+// durable ledger is the source of truth and memory stays bounded.
 type FileStore struct {
 	dir      string
 	opts     Options
@@ -49,9 +59,11 @@ type FileStore struct {
 	readOnly bool
 
 	mu        sync.Mutex
-	records   []Record
-	persisted int // number of records durably present in published segments
-	cleaned   int // leftover temporary files removed on open
+	records   []Record // hot window: absolute seqs [base, base+len(records))
+	base      int      // absolute sequence number of records[0]
+	persisted int      // absolute count of records already on disk
+	lastHash  string   // digest of the newest record (window head may be trimmed)
+	cleaned   int      // leftover temporary files removed on open
 }
 
 // NewFileStore opens (creating if needed) a durable ledger under dir. It
@@ -76,7 +88,7 @@ func NewFileStore(dir string, opts Options) (*FileStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	records, err := loadSegments(dir, true)
+	window, base, lastHash, err := loadRetained(dir, opts.RetainSegments, opts.SegmentSize)
 	if err != nil {
 		return nil, err
 	}
@@ -85,8 +97,10 @@ func NewFileStore(dir string, opts Options) (*FileStore, error) {
 		opts:      opts,
 		mode:      mode,
 		clock:     opts.Clock,
-		records:   records,
-		persisted: len(records),
+		records:   window,
+		base:      int(base),
+		persisted: int(base) + len(window),
+		lastHash:  lastHash,
 		cleaned:   cleaned,
 	}, nil
 }
@@ -133,27 +147,32 @@ func (f *FileStore) Append(ctx context.Context, kind string, payload any) (Recor
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	seq := uint64(len(f.records))
-	prev := ""
-	if seq > 0 {
-		prev = f.records[seq-1].Hash
+	seq := uint64(f.base + len(f.records))
+	prev := f.lastHash
+	rec, err := storeRecord(seq, prev, kind, f.clock(), raw)
+	if err != nil {
+		return Record{}, err
 	}
-	rec := storeRecord(seq, prev, kind, f.clock(), raw)
 	f.records = append(f.records, rec)
+	f.lastHash = rec.Hash
 
+	publish := func() error {
+		if err := f.publishLocked(f.pendingLocked()); err != nil {
+			return err
+		}
+		f.persisted = f.base + len(f.records)
+		f.trimLocked()
+		return nil
+	}
 	switch {
 	case f.opts.SyncEveryAppend:
-		pending := f.records[f.persisted:]
-		if err := f.publishLocked(pending); err != nil {
+		if err := publish(); err != nil {
 			return Record{}, err
 		}
-		f.persisted = len(f.records)
-	case len(f.records)-f.persisted >= f.opts.SegmentSize:
-		pending := f.records[f.persisted:]
-		if err := f.publishLocked(pending); err != nil {
+	case f.base+len(f.records)-f.persisted >= f.opts.SegmentSize:
+		if err := publish(); err != nil {
 			return Record{}, err
 		}
-		f.persisted = len(f.records)
 	}
 	return rec, nil
 }
@@ -168,14 +187,15 @@ func (f *FileStore) Sync(ctx context.Context) error {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	pending := f.records[f.persisted:]
+	pending := f.pendingLocked()
 	if len(pending) == 0 {
 		return nil
 	}
 	if err := f.publishLocked(pending); err != nil {
 		return err
 	}
-	f.persisted = len(f.records)
+	f.persisted = f.base + len(f.records)
+	f.trimLocked()
 	return nil
 }
 
@@ -188,13 +208,24 @@ func (f *FileStore) Close() error {
 	return f.Sync(context.Background())
 }
 
-// Replay visits all records in seq order.
-func (f *FileStore) Replay(_ context.Context, visit func(Record) error) error {
+// Replay visits all records in seq order. The hot window is served from memory;
+// the trimmed prefix is streamed back from disk segment by segment, so a large
+// ledger is never materialised in RAM just to be replayed.
+func (f *FileStore) Replay(ctx context.Context, visit func(Record) error) error {
 	f.mu.Lock()
-	snapshot := make([]Record, len(f.records))
-	copy(snapshot, f.records)
+	base := f.base
+	window := append([]Record(nil), f.records...)
 	f.mu.Unlock()
-	for _, rec := range snapshot {
+
+	if base > 0 {
+		if err := streamSegments(f.dir, uint64(base), ctx, visit); err != nil {
+			return err
+		}
+	}
+	for _, rec := range window {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := visit(rec); err != nil {
 			return err
 		}
@@ -202,11 +233,11 @@ func (f *FileStore) Replay(_ context.Context, visit func(Record) error) error {
 	return nil
 }
 
-// Len returns the number of logical records.
+// Len returns the number of logical records (disk prefix + hot window).
 func (f *FileStore) Len() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return len(f.records)
+	return f.base + len(f.records)
 }
 
 // Persisted reports how many records are durably on disk.
@@ -214,6 +245,59 @@ func (f *FileStore) Persisted() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.persisted
+}
+
+// LedgerStats describes the hot/cold split for reporting.
+type LedgerStats struct {
+	TotalRecords   int
+	InMemory       int
+	BaseSeq        uint64
+	DiskSegments   int
+	RetainSegments int
+	SegmentSize    int
+}
+
+// Stats snapshots the hot window and on-disk segment count.
+func (f *FileStore) Stats() LedgerStats {
+	f.mu.Lock()
+	base, inMem := f.base, len(f.records)
+	f.mu.Unlock()
+	files, _ := listSegments(f.dir)
+	return LedgerStats{
+		TotalRecords:   base + inMem,
+		InMemory:       inMem,
+		BaseSeq:        uint64(base),
+		DiskSegments:   len(files),
+		RetainSegments: f.opts.RetainSegments,
+		SegmentSize:    f.opts.SegmentSize,
+	}
+}
+
+// pendingLocked returns the not-yet-published tail. The caller holds f.mu.
+func (f *FileStore) pendingLocked() []Record {
+	off := f.persisted - f.base
+	if off < 0 || off > len(f.records) {
+		return nil
+	}
+	return f.records[off:]
+}
+
+// trimLocked evicts the oldest published records from the hot window once it
+// exceeds RetainSegments segments. The evicted records remain on disk and are
+// streamed by Replay; trimLocked only shrinks the resident cache.
+func (f *FileStore) trimLocked() {
+	retain := f.opts.RetainSegments
+	if retain <= 0 {
+		return
+	}
+	keep := retain * f.opts.SegmentSize
+	durable := f.persisted - f.base
+	if durable <= keep {
+		return
+	}
+	drop := durable - keep
+	f.records = append([]Record(nil), f.records[drop:]...)
+	f.base += drop
 }
 
 // publishLocked writes recs to a temp file, fsyncs, atomically renames and
@@ -335,6 +419,108 @@ func loadSegments(dir string, createOK bool) ([]Record, error) {
 
 func isLastSegment(path string, files []string) bool {
 	return len(files) > 0 && files[len(files)-1] == path
+}
+
+// checkRecord verifies one record against the expected position and previous
+// digest, and returns the digest the next record must link to.
+func checkRecord(rec Record, file string, line int, expectSeq uint64, expectPrev string) (string, error) {
+	if rec.Seq != expectSeq {
+		return "", &IntegrityError{Kind: KindBadSeq, File: file, Line: line, Seq: rec.Seq,
+			Detail: "non-monotonic sequence"}
+	}
+	if rec.PrevHash != expectPrev {
+		return "", &IntegrityError{Kind: KindBadLink, File: file, Line: line, Seq: rec.Seq,
+			Detail: "previous-hash link does not match"}
+	}
+	got, err := hashRecord(rec.Seq, rec.Kind, rec.At, rec.PrevHash, rec.Payload)
+	if err != nil {
+		return "", &IntegrityError{Kind: KindCorrupt, File: file, Line: line, Seq: rec.Seq,
+			Detail: "record cannot be hashed: " + err.Error()}
+	}
+	if got != rec.Hash {
+		return "", &IntegrityError{Kind: KindBadHash, File: file, Line: line, Seq: rec.Seq,
+			Detail: "content digest mismatch"}
+	}
+	return got, nil
+}
+
+// loadRetained replays every published segment, verifying the hash chain, and
+// keeps only the last `retainSegments` segments resident. A zero value keeps
+// everything (the pre-1.9.5 behaviour). Returns the resident window, the
+// absolute sequence number of its first record, and the newest digest.
+func loadRetained(dir string, retainSegments, segmentSize int) ([]Record, uint64, string, error) {
+	files, err := listSegments(dir)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	keep := 0
+	if retainSegments > 0 {
+		keep = retainSegments * segmentSize
+	}
+	var window []Record
+	var expectSeq uint64
+	expectPrev := ""
+	for i, path := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, 0, "", fmt.Errorf("store: read segment %s: %w", path, err)
+		}
+		seg, err := parseSegment(path, data, expectSeq, i == len(files)-1)
+		if err != nil {
+			return nil, 0, "", err
+		}
+		for j := range seg {
+			next, err := checkRecord(seg[j], path, j+1, expectSeq, expectPrev)
+			if err != nil {
+				return nil, 0, "", err
+			}
+			expectSeq++
+			expectPrev = next
+		}
+		window = append(window, seg...)
+		if keep > 0 && len(window) > keep {
+			drop := len(window) - keep
+			window = append([]Record(nil), window[drop:]...)
+		}
+	}
+	return window, expectSeq - uint64(len(window)), expectPrev, nil
+}
+
+// streamSegments replays the first `limit` records straight from disk without
+// loading them all: one segment (SegmentSize records) is resident at a time.
+func streamSegments(dir string, limit uint64, ctx context.Context, visit func(Record) error) error {
+	files, err := listSegments(dir)
+	if err != nil {
+		return err
+	}
+	var seen uint64
+	for i, path := range files {
+		if seen >= limit {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("store: read segment %s: %w", path, err)
+		}
+		seg, err := parseSegment(path, data, seen, i == len(files)-1)
+		if err != nil {
+			return err
+		}
+		for j := range seg {
+			if seen >= limit {
+				return nil
+			}
+			rec := seg[j]
+			if err := visit(rec); err != nil {
+				return err
+			}
+			seen++
+		}
+	}
+	return nil
 }
 
 // segmentForSeq names the segment that actually contains seq: the last

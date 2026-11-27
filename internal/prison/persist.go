@@ -213,30 +213,25 @@ func (sys *System) checkpoint() {
 		if !r.seenCase[c.ID] {
 			r.append(store.KindCase, c)
 			r.seenCase[c.ID] = true
-			sys.caseCount++
+			sys.state.incCase()
 		}
 	}
 	for _, s := range sys.Gov.ListSentences() {
 		if !r.seenSentence[s.ID] {
 			r.append(store.KindSentence, s)
 			r.seenSentence[s.ID] = true
-			sys.sentenceCount++
+			sys.state.incSentence()
 		}
 	}
 
 	// 5. runtime status projection (last write wins on replay).
-	for id, st := range sys.runtimeStatus {
-		rep := sys.agentReputation[id]
-		level := ""
-		if p, ok := sys.proj[id]; ok {
-			level = p.Level
-		}
+	sys.state.eachStatus(func(id domain.AgentID, st domain.AgentStatus, rep int, level string) {
 		sig := string(st) + "|" + level + "|" + fmt.Sprintf("%d", rep)
 		if r.statusSig[id] != sig {
 			r.append(store.KindRuntimeStatus, runtimeStatusRec{AgentID: id, Status: st, Level: level, Reputation: rep})
 			r.statusSig[id] = sig
 		}
-	}
+	})
 }
 
 // recordAgentRegistration projects one agent onto the ledger (called once from
@@ -294,8 +289,8 @@ func (sys *System) replay() error {
 				r.seenAck[env.Entry.ID+"|"+n] = true
 			}
 			if env.Entry.Kind == domain.CredentialIdentity {
-				if p, ok := sys.proj[env.Entry.AgentID]; ok {
-					p.CardRevoked = true
+				if _, ok := sys.state.projectCopy(env.Entry.AgentID); ok {
+					sys.state.updateProject(env.Entry.AgentID, func(p *RestoredAgent) { p.CardRevoked = true })
 				}
 			}
 
@@ -334,13 +329,13 @@ func (sys *System) replay() error {
 			if err := json.Unmarshal(rec.Payload, &ar); err != nil {
 				return fmt.Errorf("prison: agent reg seq=%d: %w", rec.Seq, err)
 			}
-			sys.proj[ar.AgentID] = &RestoredAgent{
+			sys.state.setProject(ar.AgentID, &RestoredAgent{
 				AgentID:   ar.AgentID,
 				DID:       ar.DID,
 				Name:      ar.Name,
 				Principal: ar.Principal.ID,
 				Nodes:     ar.Nodes,
-			}
+			})
 			r.seenAgent[ar.AgentID] = true
 
 		case store.KindSentence:
@@ -349,13 +344,10 @@ func (sys *System) replay() error {
 				return fmt.Errorf("prison: sentence seq=%d: %w", rec.Seq, err)
 			}
 			if !r.seenSentence[s.ID] {
-				sys.sentenceCount++
-				p, ok := sys.proj[s.AgentID]
-				if !ok {
-					p = &RestoredAgent{AgentID: s.AgentID}
-					sys.proj[s.AgentID] = p
-				}
-				p.Sentences = append(p.Sentences, s.ID)
+				sys.state.incSentence()
+				sys.state.updateProject(s.AgentID, func(p *RestoredAgent) {
+					p.Sentences = append(p.Sentences, s.ID)
+				})
 			}
 			r.seenSentence[s.ID] = true
 
@@ -367,7 +359,7 @@ func (sys *System) replay() error {
 				return fmt.Errorf("prison: case seq=%d: %w", rec.Seq, err)
 			}
 			if !r.seenCase[c.ID] {
-				sys.caseCount++
+				sys.state.incCase()
 			}
 			r.seenCase[c.ID] = true
 
@@ -376,14 +368,11 @@ func (sys *System) replay() error {
 			if err := json.Unmarshal(rec.Payload, &rs); err != nil {
 				return fmt.Errorf("prison: runtime status seq=%d: %w", rec.Seq, err)
 			}
-			p, ok := sys.proj[rs.AgentID]
-			if !ok {
-				p = &RestoredAgent{AgentID: rs.AgentID}
-				sys.proj[rs.AgentID] = p
-			}
-			p.Status = rs.Status
-			p.Level = rs.Level
-			p.Reputation = rs.Reputation
+			sys.state.updateProject(rs.AgentID, func(p *RestoredAgent) {
+				p.Status = rs.Status
+				p.Level = rs.Level
+				p.Reputation = rs.Reputation
+			})
 			r.statusSig[rs.AgentID] = string(rs.Status) + "|" + rs.Level + "|" + fmt.Sprintf("%d", rs.Reputation)
 		}
 		return nil
@@ -475,7 +464,7 @@ func (sys *System) InspectView() *InspectView {
 	}
 
 	// Unify the projection (live: incrementally maintained; restart: replayed).
-	for id, p := range sys.proj {
+	sys.state.eachProject(func(id domain.AgentID, p RestoredAgent) {
 		v.Agents = append(v.Agents, AgentView{
 			AgentID:     string(id),
 			DID:         string(p.DID),
@@ -484,7 +473,7 @@ func (sys *System) InspectView() *InspectView {
 			CardRevoked: p.CardRevoked,
 			Reputation:  p.Reputation,
 		})
-	}
+	})
 	sort.Slice(v.Agents, func(i, j int) bool { return v.Agents[i].AgentID < v.Agents[j].AgentID })
 
 	if sys.recorder == nil {
@@ -492,8 +481,7 @@ func (sys *System) InspectView() *InspectView {
 		v.Cases = len(sys.Gov.ListCases())
 		v.Sentences = len(sys.Gov.ListSentences())
 	} else {
-		v.Cases = sys.caseCount
-		v.Sentences = sys.sentenceCount
+		v.Cases, v.Sentences = sys.state.counts()
 	}
 	return v
 }
@@ -507,7 +495,9 @@ func (sys *System) Close() error {
 	if err := sys.recorder.st.Sync(context.Background()); err != nil && sys.recorder.err == nil {
 		sys.recorder.err = err
 	}
-	_ = sys.recorder.st.Close()
+	if err := sys.recorder.st.Close(); err != nil && sys.recorder.err == nil {
+		sys.recorder.err = err
+	}
 	return sys.recorder.err
 }
 

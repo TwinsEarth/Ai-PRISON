@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -33,6 +34,9 @@ const (
 	KindRuntimeStatus = "runtime.status"
 	// KindRecovery carries a restoration / recovery-drill outcome.
 	KindRecovery = "recovery"
+	// KindWatchdogIncident carries one incident imported from the DSH watchdog
+	// journal (incidents.jsonl). The payload is the original JSON object.
+	KindWatchdogIncident = "watchdog.incident"
 )
 
 // Record is one immutable, append-only ledger row. Seq is a global, zero-based
@@ -89,8 +93,10 @@ type InvalidPayloadError struct{ Reason string }
 
 func (e *InvalidPayloadError) Error() string { return "store: invalid payload: " + e.Reason }
 
-// hashRecord computes the SHA-256 hex digest binding the record fields.
-func hashRecord(seq uint64, kind string, at time.Time, prevHash string, payload []byte) string {
+// hashRecord computes the SHA-256 hex digest binding the record fields. It
+// returns an error instead of panicking: a malformed payload must surface as a
+// diagnosable failure at the Append/Verify boundary, never as a process crash.
+func hashRecord(seq uint64, kind string, at time.Time, prevHash string, payload []byte) (string, error) {
 	frame := canonicalFrame{
 		Seq:      seq,
 		Kind:     kind,
@@ -108,18 +114,21 @@ func hashRecord(seq uint64, kind string, at time.Time, prevHash string, payload 
 		json.RawMessage(frame.Payload),
 	})
 	if err != nil {
-		// All components are JSON-safe in practice.
-		panic("store: cannot hash record: " + err.Error())
+		return "", fmt.Errorf("store: hash record %d: %w", seq, err)
 	}
 	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // storeRecord is the backend-internal construction shared by both backends:
 // it assigns seq, normalises the timestamp and computes the digest.
-func storeRecord(seq uint64, prevHash string, kind string, at time.Time, payload json.RawMessage) Record {
+func storeRecord(seq uint64, prevHash string, kind string, at time.Time, payload json.RawMessage) (Record, error) {
 	if at.IsZero() {
 		at = time.Now().UTC()
+	}
+	hash, err := hashRecord(seq, kind, at, prevHash, payload)
+	if err != nil {
+		return Record{}, err
 	}
 	return Record{
 		Seq:      seq,
@@ -127,8 +136,8 @@ func storeRecord(seq uint64, prevHash string, kind string, at time.Time, payload
 		At:       at.UTC(),
 		Payload:  payload,
 		PrevHash: prevHash,
-		Hash:     hashRecord(seq, kind, at, prevHash, payload),
-	}
+		Hash:     hash,
+	}, nil
 }
 
 // Store is the append-only durable ledger contract. Both MemoryStore and

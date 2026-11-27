@@ -105,14 +105,18 @@ func TestChainRecomputedTamperDetectedAsBrokenLink(t *testing.T) {
 
 	entries := c.Entries()
 	entries[1].Payload["level"] = "L9"
-	entries[1].Hash = hashOf(entries[1]) // attacker patches the digest too
+	patched, err := hashOf(entries[1])
+	if err != nil {
+		t.Fatalf("hashOf: %v", err)
+	}
+	entries[1].Hash = patched // attacker patches the digest too
 
-	err := VerifyEntries(entries)
-	if err == nil {
+	verifyErr := VerifyEntries(entries)
+	if verifyErr == nil {
 		t.Fatal("recomputed middle tamper must still break the link to the next entry")
 	}
-	if !strings.Contains(err.Error(), "broken chain link") || !strings.Contains(err.Error(), "index 2") {
-		t.Errorf("expected a link error at index 2, got: %v", err)
+	if !strings.Contains(verifyErr.Error(), "broken chain link") || !strings.Contains(verifyErr.Error(), "index 2") {
+		t.Errorf("expected a link error at index 2, got: %v", verifyErr)
 	}
 }
 

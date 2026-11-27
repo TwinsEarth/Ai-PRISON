@@ -14,23 +14,37 @@ import (
 //
 // Everything below is a SIMULATED governance drill: no real isolation, GRAM/TLM
 // reload, token stack, hardware binding or identity unseal happens. When
-// dataDir is set the drill's governance record is projected onto a real
+// --data-dir is set the drill's governance record is projected onto a real
 // FileStore ledger.
-func runDrill(dataDir string) {
+func runDrill(o options) {
 	var rep *prison.DrillReport
 	var recordCount, segCount int
 	var dir string
 
-	if dataDir == "" {
-		rep = prison.RunRecoveryDrill()
+	clk, err := o.resolveClock()
+	if err != nil {
+		fail(err)
+	}
+	cfg, err := o.prisonConfig(clk, nil)
+	if err != nil {
+		fail(err)
+	}
+
+	if o.dataDir == "" {
+		rep = prison.RunRecoveryDrillConfig(cfg)
 	} else {
-		dir = dataDir
-		fmt.Printf("数据目录: %s\n", dataDir)
-		fs, err := store.NewFileStore(dataDir, store.Options{Clock: prison.DefaultClock})
+		dir = o.dataDir
+		fmt.Printf("数据目录: %s\n", o.dataDir)
+		so, err := o.storeOptions(clk)
+		if err != nil {
+			fail(err)
+		}
+		fs, err := store.NewFileStore(o.dataDir, so)
 		if err != nil {
 			fail(fmt.Errorf("open data dir: %w", err))
 		}
-		sys := prison.NewSystem(prison.Config{Store: fs})
+		cfg.Store = fs
+		sys := prison.NewSystem(cfg)
 		if sys.BootstrapErr != nil {
 			fail(sys.BootstrapErr)
 		}
@@ -39,11 +53,11 @@ func runDrill(dataDir string) {
 			fail(err)
 		}
 		recordCount = fs.Len()
-		segCount = prison.SegmentCount(dataDir)
+		segCount = prison.SegmentCount(o.dataDir)
 	}
 
 	fmt.Print(rep.Print())
-	if dataDir != "" {
+	if o.dataDir != "" {
 		fmt.Println()
 		fmt.Println("── 落盘摘要 ──")
 		fmt.Printf("  数据目录:      %s\n", dir)

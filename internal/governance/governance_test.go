@@ -551,3 +551,61 @@ func sentenceCaseID(g *Governance, sentenceID string) string {
 	}
 	return ""
 }
+
+// openAndAdmit drives a fresh case to stage ③ so a committee can be formed.
+func openAndAdmit(t *testing.T, g *Governance, id domain.AgentID) *Case {
+	t.Helper()
+	v := mustViolation(t, id, domain.ViolationSandboxEscapeAttempt)
+	c, err := g.OpenCase(v)
+	if err != nil {
+		t.Fatalf("OpenCase: %v", err)
+	}
+	if _, err := g.AdmitEvidence(c.ID, []domain.Charge{{
+		ViolationType: v.Type, Description: "x", Evidence: []string{"e"},
+	}}); err != nil {
+		t.Fatalf("AdmitEvidence: %v", err)
+	}
+	return c
+}
+
+func TestCharterAmendmentAllowsSeatRemoval(t *testing.T) {
+	g := New(Config{
+		Events:        NewEventSink(audit.NewChain()),
+		CharterSeats:  []domain.CommitteeRole{domain.SeatSafetyOrg, domain.SeatPrincipal},
+		CharterReason: "model provider seat vacated",
+	})
+	c := openAndAdmit(t, g, "agent-charter")
+	formed, err := g.ConfirmBaseline(c.ID, []domain.CommitteeRole{
+		domain.SeatSafetyOrg, domain.SeatPrincipal,
+	})
+	if err != nil {
+		t.Fatalf("amended 2-seat committee rejected: %v", err)
+	}
+	if formed.CharterReason != "model provider seat vacated" {
+		t.Fatalf("case charter reason = %q, want the amendment reason", formed.CharterReason)
+	}
+	// A wider roster is still allowed, as long as every charter seat is present.
+	c2 := openAndAdmit(t, g, "agent-charter2")
+	if _, err := g.ConfirmBaseline(c2.ID, []domain.CommitteeRole{
+		domain.SeatSafetyOrg, domain.SeatPrincipal, domain.SeatDeployer,
+	}); err != nil {
+		t.Fatalf("3-seat roster over a 2-seat charter rejected: %v", err)
+	}
+	// Dropping a seat the amended charter still requires must fail closed.
+	c3 := openAndAdmit(t, g, "agent-charter3")
+	if _, err := g.ConfirmBaseline(c3.ID, []domain.CommitteeRole{
+		domain.SeatSafetyOrg, domain.SeatDeployer,
+	}); !errors.Is(err, ErrCommitteeIncomplete) {
+		t.Fatalf("missing amended charter seat: err=%v want ErrCommitteeIncomplete", err)
+	}
+}
+
+func TestDefaultCharterStillRejectsRemoval(t *testing.T) {
+	g, _ := newWired(t)
+	c := openAndAdmit(t, g, "agent-default-charter")
+	if _, err := g.ConfirmBaseline(c.ID, []domain.CommitteeRole{
+		domain.SeatSafetyOrg, domain.SeatPrincipal, domain.SeatDeployer,
+	}); !errors.Is(err, ErrCommitteeIncomplete) {
+		t.Fatalf("default charter must still reject a 3-seat committee, err=%v", err)
+	}
+}

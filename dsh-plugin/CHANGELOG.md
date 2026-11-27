@@ -2,6 +2,27 @@
 
 All notable changes to `@twinsearth/ai-prison-dsh-plugin` are recorded here.
 
+## [1.9.4] — 2026-11-27
+
+### Added — configurable runtime surface
+
+- `aiprison config` plus 11 flags and matching `AIPRISON_*` environment
+  variables expose segment size, per-append sync, file mode, clock, quota,
+  custody threshold, monitor threshold and committee seats.
+- Defaults reproduce the 1.9.3 ledger byte-for-byte: 80 records, 53,235 B,
+  sha256 `2604C53B66E820AF4A18DA3CCC97F492540CAFEB4C31FD0C1418D4CCFDEF6FC0`.
+- `--clock` now governs every emitted timestamp, not only the ledger `at`
+  field; the fixed clock no longer leaves other timestamps on wall time.
+
+### Fixed
+
+- The plugin tool whitelist runs before CLI resolution, so an authorization
+  denial is no longer silently downgraded to `cli-missing`.
+
+### Verification
+
+- Config matrix: 47/47 PASS. Default and configured ledgers both re-verify.
+
 ## [1.9.3] — 2026-11-25
 
 ### Fixed — ledger repair is now byte-exact and crash-safe

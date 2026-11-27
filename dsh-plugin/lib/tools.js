@@ -1,4 +1,5 @@
 import { resolveCli, runCli } from './cli.js'
+import path from 'node:path'
 import { loadDefineTool } from './harness.js'
 import { buildStatus, statusSummary } from './status.js'
 import { watchdogSnapshot } from './watchdog-runtime.js'
@@ -82,6 +83,14 @@ function parametersOf(config) {
  * before the subcommand, which is the CLI's documented global flag position.
  */
 async function invoke({ ctx, config, exec, subcommand, args = [], dataDir: explicitDataDir, timeoutMs }) {
+  // Validate the requested ledger directory BEFORE resolving the CLI. The
+  // whitelist is an authorization check, not an availability probe: a caller
+  // that asks for an out-of-whitelist path must always get
+  // `data-dir-not-allowed`, even when no bundled CLI is installed (otherwise
+  // the guard silently degrades into `cli-missing` and the agent cannot tell a
+  // permission refusal from a missing dependency).
+  const guard = allowedDataDir({ ctx, config, exec, requested: explicitDataDir })
+  if (!guard.ok) return { payload: guard.payload, ok: false }
   const resolved = resolveCli({ config })
   if (!resolved.path) {
     return {
@@ -94,8 +103,6 @@ async function invoke({ ctx, config, exec, subcommand, args = [], dataDir: expli
       ok: false,
     }
   }
-  const guard = allowedDataDir({ ctx, config, exec, requested: explicitDataDir })
-  if (!guard.ok) return { payload: guard.payload, ok: false }
   const cwd = guard.cwd
   const dataDir = guard.dataDir
   const result = await runCli(['--data-dir', dataDir, subcommand, ...args], {
@@ -274,6 +281,64 @@ export async function installTools({ ctx, config = {}, logger } = {}) {
           note: snapshot.enforce
             ? 'enforce 模式：热操作 > 5 次自动关闭；3.9GB 暂停需二次确认，5GB 冻结插件操作。'
             : 'observe 模式：仅观察与记录，不自动关闭任何插件。',
+        })
+      },
+    })
+
+    register({
+      name: 'ai_prison_watchdog_bridge',
+      description:
+        'Bridge the watchdog into the governance ledger: incrementally ingest new watchdog incidents (incidents.jsonl) as hash-chained watchdog.incident records, then return the merged metrics view (ledger records, hot window, kind counts, watchdog offset and pending bytes). Mutating: writes to the ledger; requires confirm: true. Idempotent: the byte offset is persisted atomically, so re-running ingests only new lines.',
+      parameters: {
+        data_dir: dataDirParameter,
+        source: {
+          type: 'string',
+          description: 'Path to the watchdog incidents.jsonl. Default: the watchdog data directory resolved from the current snapshot.',
+        },
+        confirm: confirmParameter,
+      },
+      output: stringOutput,
+      async execute(args, exec) {
+        const guard = allowedDataDir({ ctx, config, exec, requested: args?.data_dir })
+        if (!guard.ok) return toolResult(guard.payload)
+        if (args?.confirm !== true) {
+          return toolResult({ ok: false, reason: 'confirmation-required', hint: 'ai_prison_watchdog_bridge 会向账本追加 watchdog.incident 记录；请显式传 confirm: true。' })
+        }
+        let source = typeof args?.source === 'string' && args.source ? args.source : ''
+        if (!source) {
+          const snapshot = watchdogSnapshot()
+          if (!snapshot.ok || !snapshot.dataDir) {
+            return toolResult({
+              ok: false,
+              reason: 'watchdog-unavailable',
+              hint: '未启用 watchdog 且未显式给 source：请启用 ai-prison-watchdog，或传 source=<incidents.jsonl 路径>。',
+            })
+          }
+          source = path.join(snapshot.dataDir, 'incidents.jsonl')
+        }
+        const ingest = await invoke({
+          ctx,
+          config,
+          exec,
+          subcommand: 'ingest-watchdog',
+          args: ['--source', source],
+          dataDir: guard.dataDir,
+        })
+        if (!ingest.ok) return toolResult({ ok: false, source, ingest: ingest.payload })
+        const metrics = await invoke({
+          ctx,
+          config,
+          exec,
+          subcommand: 'metrics',
+          args: ['--source', source],
+          dataDir: guard.dataDir,
+        })
+        return toolResult({
+          ok: metrics.ok,
+          source,
+          dataDir: guard.dataDir,
+          ingest: ingest.payload,
+          metrics: metrics.payload,
         })
       },
     })

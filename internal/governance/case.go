@@ -89,9 +89,13 @@ type Case struct {
 	Status      CaseStatus        `json:"status"`
 	Stage       AdjudicationStage `json:"stage"`
 	Charges     []domain.Charge   `json:"charges"`
-	// Seats is the committee roster constituted at stage ③ (the four mandatory
-	// seats are always present; affected_node is added for cross-network harm).
+	// Seats is the committee roster constituted at stage ③. Under the default
+	// charter all four mandatory seats are present; an amended charter narrows
+	// that set and CharterReason records why.
 	Seats []domain.CommitteeRole `json:"seats"`
+	// CharterReason is the recorded justification when this case was formed
+	// under an amended (narrower) charter. Empty on the default charter.
+	CharterReason string `json:"charterReason,omitempty"`
 	// Votes is the immutable committee vote book (deprive then grade).
 	Votes      []domain.Vote `json:"votes"`
 	SentenceID string        `json:"sentenceId,omitempty"`
@@ -123,6 +127,14 @@ type Governance struct {
 	sentences map[string]*domain.Sentence
 	appeals   map[string]*Appeal
 	restores  map[string]*RestorationOrder
+	// charter is the mandatory-seat set this instance enforces. It defaults to
+	// the four charter seats; an explicitly amended charter (a strict subset,
+	// ≥2 seats) is the only way to remove one. It is fixed at construction and
+	// never mutated, so readers need no extra locking beyond g.mu.
+	charter []domain.CommitteeRole
+	// charterReason is the recorded justification for a narrowed charter; it is
+	// copied onto every case this instance forms so the ledger carries why.
+	charterReason string
 	// internalPrincipals is the fallback principal registry populated by
 	// RegisterAgent, consulted before the injected PrincipalResolver.
 	internalPrincipals map[domain.AgentID]string
@@ -139,6 +151,14 @@ type Config struct {
 	Principals PrincipalResolver
 	// Now overrides the clock; zero means time.Now().
 	Now func() time.Time
+	// CharterSeats narrows the mandatory-seat set this instance enforces. nil
+	// keeps the four charter seats. A caller-supplied subset is a deliberate
+	// charter amendment: checkMandatorySeats then requires those seats instead.
+	// It must be non-empty and must not repeat a role; validation lives in the
+	// orchestrator (prison.Config.Validate) so governance stays policy-free.
+	CharterSeats []domain.CommitteeRole
+	// CharterReason is copied onto every case formed under an amended charter.
+	CharterReason string
 }
 
 // New returns a wired Governance.
@@ -151,6 +171,11 @@ func New(cfg Config) *Governance {
 		sentences:  make(map[string]*domain.Sentence),
 		appeals:    make(map[string]*Appeal),
 		restores:   make(map[string]*RestorationOrder),
+		charter:    append([]domain.CommitteeRole(nil), mandatorySeats...),
+	}
+	if len(cfg.CharterSeats) > 0 {
+		g.charter = append([]domain.CommitteeRole(nil), cfg.CharterSeats...)
+		g.charterReason = cfg.CharterReason
 	}
 	if g.events == nil {
 		g.events = noopEventSink{}
